@@ -30,7 +30,7 @@ function mapStatus(state: string): "PENDING" | "APPROVED" | "DECLINED" {
 
 export async function fetchImpactActions(): Promise<{ orders: ImpactAction[]; error?: string }> {
   const accountSid = process.env.IMPACT_ACCOUNT_SID;
-  const authToken = process.env.IMPACT_AUTH_TOKEN;
+  const authToken = process.env.IMPACT_AUTH_TOKEN || process.env.IMPACT_TOKEN;
   if (!accountSid || !authToken) return { orders: [], error: "Impact credentials not configured" };
 
   try {

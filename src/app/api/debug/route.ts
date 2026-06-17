@@ -57,7 +57,7 @@ export async function GET() {
     const pub = process.env.LEADDYNO_PUBLIC_KEY;
     if (priv && pub) {
       const res = await fetch(
-        `https://api.leaddyno.com/v1/affiliate_transactions?key=${priv}&from=2026-06-01&to=2026-06-02&per_page=1`,
+        `https://api.leaddyno.com/v1/purchases?key=${priv}&from=2026-06-01&to=2026-06-02&per_page=1`,
         { headers: { Authorization: pub } }
       );
       const body = await res.text();

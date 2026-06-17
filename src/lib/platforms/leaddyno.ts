@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { convertToUsd, convertToRmb } from "@/lib/currency";
 
-// LeadDyno: /v1/affiliate_transactions, key=? (private), Authorization: (public)
+// LeadDyno: /v1/purchases, key=? (private), Authorization: (public)
 interface LdTransaction {
   id: string;
   email: string;
@@ -45,7 +45,7 @@ export async function fetchLeadDynoTransactions(): Promise<{
       const from = `${year}-01-01`;
       const to = `${year}-12-31`;
       
-      const url = `https://api.leaddyno.com/v1/affiliate_transactions?key=${privateKey}&from=${from}&to=${to}&per_page=200`;
+      const url = `https://api.leaddyno.com/v1/purchases?key=${privateKey}&from=${from}&to=${to}&per_page=200`;
       
       const res = await fetch(url, {
         headers: {
