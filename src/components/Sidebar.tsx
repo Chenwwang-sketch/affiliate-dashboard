@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -9,6 +10,8 @@ import {
   Settings,
   BarChart3,
   RefreshCw,
+  CheckCircle,
+  XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +40,26 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<Record<string, any> | null>(null);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/sync", { method: "POST" });
+      const data = await res.json();
+      setSyncResult(data.results || data);
+      if (data.results) {
+        const hasNew = Object.values(data.results).some((r: any) => r.newCount > 0);
+        if (hasNew) window.location.reload();
+      }
+    } catch {
+      setSyncResult({ error: "网络错误" });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <aside className="w-60 bg-white border-r border-gray-200 flex flex-col">
@@ -79,21 +102,39 @@ export default function Sidebar() {
       </nav>
 
       {/* Sync Status */}
-      <div className="p-3 border-t border-gray-100">
+      <div className="p-3 border-t border-gray-100 space-y-2">
         <button
-          onClick={async () => {
-            try {
-              await fetch("/api/sync", { method: "POST" });
-              window.location.reload();
-            } catch {
-              alert("同步失败，请检查网络");
-            }
-          }}
-          className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-500 hover:text-primary hover:bg-gray-50 rounded-lg transition-colors"
+          onClick={handleSync}
+          disabled={syncing}
+          className="flex items-center gap-2 w-full px-3 py-2 text-xs text-gray-500 hover:text-primary hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50"
         >
-          <RefreshCw className="w-3 h-3" />
-          手动触发同步
+          <RefreshCw className={cn("w-3 h-3", syncing && "animate-spin")} />
+          {syncing ? "同步中..." : "手动触发同步"}
         </button>
+        {syncResult && !syncing && (
+          <div className="text-xs space-y-0.5">
+            {Object.entries(syncResult).map(([platform, result]: [string, any]) => {
+              if (platform === "results") return null;
+              const ok = result?.status === "SUCCESS" || result?.newCount > 0;
+              return (
+                <div key={platform} className="flex items-center gap-1 text-gray-500">
+                  {ok ? (
+                    <CheckCircle className="w-3 h-3 text-emerald-500" />
+                  ) : (
+                    <XCircle className="w-3 h-3 text-red-400" />
+                  )}
+                  <span>{platform}</span>
+                  {result?.newCount > 0 && (
+                    <span className="text-emerald-600">+{result.newCount}</span>
+                  )}
+                  {result?.error && (
+                    <span className="text-red-400 truncate">{result.error}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </aside>
   );
