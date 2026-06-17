@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 
-// GET /api/debug - tests platform connections
+async function tryFetch(url: string, headers: Record<string, string>) {
+  const res = await fetch(url, { headers });
+  const text = await res.text();
+  const isHtml = text.trim().startsWith("<") || text.trim().startsWith("<!DOCTYPE");
+  let json: any = null;
+  if (!isHtml) { try { json = JSON.parse(text); } catch {} }
+  return { ok: res.ok && !isHtml, httpStatus: res.status, isHtml, bodyPreview: text.slice(0, 300), json };
+}
+
 export async function GET() {
   const probes: Record<string, any> = {};
   const env: Record<string, string> = {};
@@ -9,86 +17,56 @@ export async function GET() {
   env.AWIN_TOKEN = process.env.AWIN_TOKEN ? "(set)" : "MISSING";
   env.AWIN_PUBLISHER_ID = process.env.AWIN_PUBLISHER_ID || "MISSING";
   try {
-    const t = process.env.AWIN_TOKEN;
-    const pid = process.env.AWIN_PUBLISHER_ID;
+    const t = process.env.AWIN_TOKEN; const pid = process.env.AWIN_PUBLISHER_ID;
     if (t && pid) {
-      const res = await fetch(
-        `https://api.awin.com/publishers/${pid}/transactions/?startDate=2026-06-01T00:00:00&endDate=2026-06-02T00:00:00&timezone=UTC&accessToken=${t}`,
-        { headers: { Authorization: `Bearer ${t}` } }
-      );
-      const body = await res.text();
-      probes.awin = {
-        ok: res.ok,
-        httpStatus: res.status,
-        bodyPreview: body.slice(0, 300),
-      };
-    } else {
-      probes.awin = { ok: false, error: "missing env vars" };
-    }
-  } catch (e: any) {
-    probes.awin = { ok: false, error: e.message };
-  }
+      const r = await tryFetch(`https://api.awin.com/publishers/${pid}/transactions/?startDate=2026-06-01T00:00:00&endDate=2026-06-02T00:00:00&timezone=UTC&accessToken=${t}`, { Authorization: `Bearer ${t}` });
+      probes.awin = { ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview };
+    } else { probes.awin = { ok: false, error: "missing env" }; }
+  } catch (e: any) { probes.awin = { ok: false, error: e.message }; }
 
   // --- Impact ---
   env.IMPACT_ACCOUNT_SID = process.env.IMPACT_ACCOUNT_SID || "MISSING";
   env.IMPACT_AUTH_TOKEN = process.env.IMPACT_AUTH_TOKEN ? "(set)" : "MISSING";
   try {
-    const sid = process.env.IMPACT_ACCOUNT_SID;
-    const tok = process.env.IMPACT_AUTH_TOKEN;
+    const sid = process.env.IMPACT_ACCOUNT_SID; const tok = process.env.IMPACT_AUTH_TOKEN || process.env.IMPACT_TOKEN;
     if (sid && tok) {
-      const res = await fetch(
-        `https://api.impact.com/Mediapartners/${sid}/Actions?Page=1&PageSize=1`,
-        { headers: { Authorization: "Basic " + Buffer.from(`${sid}:${tok}`).toString("base64"), Accept: "application/json" } }
-      );
-      const body = await res.text();
-      probes.impact = { ok: res.ok, httpStatus: res.status, bodyPreview: body.slice(0, 300) };
-    } else {
-      probes.impact = { ok: false, error: "missing env vars" };
-    }
-  } catch (e: any) {
-    probes.impact = { ok: false, error: e.message };
-  }
+      const r = await tryFetch(`https://api.impact.com/Mediapartners/${sid}/Actions?Page=1&PageSize=1`, { Authorization: "Basic " + Buffer.from(`${sid}:${tok}`).toString("base64"), Accept: "application/json" });
+      probes.impact = { ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview };
+    } else { probes.impact = { ok: false, error: "missing env" }; }
+  } catch (e: any) { probes.impact = { ok: false, error: e.message }; }
 
-  // --- LeadDyno ---
+  // --- LeadDyno: 自动探测鉴权 ---
   env.LEADDYNO_TOKEN = process.env.LEADDYNO_TOKEN ? "(set)" : "MISSING";
   env.LEADDYNO_PUBLIC_KEY = process.env.LEADDYNO_PUBLIC_KEY ? "(set)" : "MISSING";
   try {
-    const priv = process.env.LEADDYNO_TOKEN;
-    const pub = process.env.LEADDYNO_PUBLIC_KEY;
-    if (priv && pub) {
-      const res = await fetch(
-        `https://api.leaddyno.com/v1/purchases?key=${priv}&from=2026-06-01&to=2026-06-02&per_page=1`,
-        { headers: { Authorization: pub } }
-      );
-      const body = await res.text();
-      probes.leaddyno = { ok: res.ok, httpStatus: res.status, bodyPreview: body.slice(0, 300) };
-    } else {
-      probes.leaddyno = { ok: false, error: "missing env vars" };
+    const t = process.env.LEADDYNO_TOKEN; const pub = process.env.LEADDYNO_PUBLIC_KEY;
+    if (!t) { probes.leaddyno = { ok: false, error: "LEADDYNO_TOKEN missing" }; }
+    else {
+      const strategies = [
+        { name: "Bearer", headers: { Authorization: `Bearer ${t}` }, url: `https://api.leaddyno.com/v1/purchases?per_page=1` },
+        ...(pub ? [{ name: "Key+PublicKey", headers: { Authorization: pub }, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` }] : []),
+      ];
+      let best: any = null;
+      for (const s of strategies) {
+        const r = await tryFetch(s.url, s.headers);
+        best = { ...r, strategy: s.name };
+        if (r.ok) break;
+      }
+      probes.leaddyno = { ok: best?.ok || false, httpStatus: best?.httpStatus, isHtml: best?.isHtml, strategy: best?.strategy, bodyPreview: best?.bodyPreview };
     }
-  } catch (e: any) {
-    probes.leaddyno = { ok: false, error: e.message };
-  }
+  } catch (e: any) { probes.leaddyno = { ok: false, error: e.message }; }
 
   // --- GoAffPro ---
   env.GOAFFPRO_TOKEN = process.env.GOAFFPRO_TOKEN ? "(set)" : "MISSING";
   env.GOAFFPRO_BASE_URL = process.env.GOAFFPRO_BASE_URL || "MISSING";
   try {
-    const tok = process.env.GOAFFPRO_TOKEN;
-    const base = process.env.GOAFFPRO_BASE_URL;
-    if (tok && base) {
+    const tok = process.env.GOAFFPRO_TOKEN; const base = process.env.GOAFFPRO_BASE_URL;
+    if (tok && base && base !== "MISSING") {
       const apiBase = base.replace(/\/+$/, "");
-      const res = await fetch(
-        `${apiBase}/api/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
-        { headers: { "X-Goaffpro-Access-Token": tok } }
-      );
-      const body = await res.text();
-      probes.goaffpro = { ok: res.ok, httpStatus: res.status, bodyPreview: body.slice(0, 300) };
-    } else {
-      probes.goaffpro = { ok: false, error: "missing env vars" };
-    }
-  } catch (e: any) {
-    probes.goaffpro = { ok: false, error: e.message };
-  }
+      const r = await tryFetch(`${apiBase}/api/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`, { "X-Goaffpro-Access-Token": tok });
+      probes.goaffpro = { ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview };
+    } else { probes.goaffpro = { ok: false, error: "missing env" }; }
+  } catch (e: any) { probes.goaffpro = { ok: false, error: e.message }; }
 
   return NextResponse.json({ env, probes });
 }
