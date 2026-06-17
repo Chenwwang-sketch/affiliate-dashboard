@@ -39,7 +39,7 @@ export async function fetchGoAffProOrders(): Promise<{
   error?: string;
 }> {
   const apiKey = process.env.GOAFFPRO_TOKEN;
-  const baseUrl = process.env.GOAFFPRO_BASE_URL;
+  // GoAffPro API 固定地址，不受 GOAFFPRO_BASE_URL 影响
 
   if (!apiKey) {
     return { orders: [], error: "GoAffPro API key not configured" };
@@ -51,8 +51,7 @@ export async function fetchGoAffProOrders(): Promise<{
     let hasMore = true;
 
     while (hasMore) {
-      const apiBase = baseUrl || "https://api.goaffpro.com";
-      const url = `${apiBase}/v1/orders?page=${page}&limit=200`;
+      const url = `https://api.goaffpro.com/v1/orders?page=${page}&limit=200`;
 
       const res = await fetch(url, {
         headers: {

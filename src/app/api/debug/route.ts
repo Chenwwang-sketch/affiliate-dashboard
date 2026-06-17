@@ -13,15 +13,13 @@ export async function GET() {
     } else if (!awinPubId) {
       results.AWIN = { status: "NO_KEY", error: "AWIN_PUBLISHER_ID 未配置" };
     } else {
-      const res = await fetch(
-        `https://api.awin.com/publishers/${awinPubId}/transactions/?startDate=2024-01-01T00:00:00&endDate=2024-01-02T00:00:00&timezone=UTC`,
-        {
-          headers: {
-            Authorization: `Bearer ${awinToken}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const url = `https://api.awin.com/publishers/${awinPubId}/transactions/?startDate=2024-01-01T00:00:00&endDate=2024-01-02T00:00:00&timezone=UTC&accessToken=${awinToken}`;
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${awinToken}`,
+          "Content-Type": "application/json",
+        },
+      });
       const text = await res.text();
       results.AWIN = {
         status: res.ok ? "OK" : "ERROR",
@@ -92,8 +90,7 @@ export async function GET() {
     if (!token) {
       results.GOAFFPRO = { status: "NO_KEY", error: "GOAFFPRO_TOKEN 未配置" };
     } else {
-      const baseUrl = process.env.GOAFFPRO_BASE_URL || "https://api.goaffpro.com";
-      const res = await fetch(`${baseUrl}/v1/orders?page=1&limit=1`, {
+      const res = await fetch("https://api.goaffpro.com/v1/orders?page=1&limit=1", {
         headers: {
           "X-Api-Key": token,
           "Content-Type": "application/json",
@@ -104,7 +101,7 @@ export async function GET() {
         status: res.ok ? "OK" : "ERROR",
         httpStatus: res.status,
         bodyPreview: text.slice(0, 300),
-        env: { hasToken: !!token, baseUrl },
+        env: { hasToken: !!token },
       };
     }
   } catch (e: any) {

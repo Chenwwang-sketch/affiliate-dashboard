@@ -64,6 +64,7 @@ export async function fetchAwinOrders(): Promise<{
       url.searchParams.set("startDate", startDate.toISOString().split("T")[0] + "T00:00:00");
       url.searchParams.set("endDate", batchEnd.toISOString().split("T")[0] + "T23:59:59");
       url.searchParams.set("timezone", "UTC");
+      url.searchParams.set("accessToken", apiKey);
 
       const res = await fetch(url.toString(), {
         headers: {
