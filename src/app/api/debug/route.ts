@@ -1,125 +1,94 @@
 import { NextResponse } from "next/server";
 
-// GET /api/debug - 测试各平台连接状态
+// GET /api/debug - tests platform connections
 export async function GET() {
-  const results: Record<string, any> = {};
+  const probes: Record<string, any> = {};
+  const env: Record<string, string> = {};
 
-  // Awin
+  // --- Awin ---
+  env.AWIN_TOKEN = process.env.AWIN_TOKEN ? "(set)" : "MISSING";
+  env.AWIN_PUBLISHER_ID = process.env.AWIN_PUBLISHER_ID || "MISSING";
   try {
-    const awinToken = process.env.AWIN_TOKEN;
-    const awinPubId = process.env.AWIN_PUBLISHER_ID;
-    if (!awinToken) {
-      results.AWIN = { status: "NO_KEY", error: "AWIN_TOKEN 未配置" };
-    } else if (!awinPubId) {
-      results.AWIN = { status: "NO_KEY", error: "AWIN_PUBLISHER_ID 未配置" };
-    } else {
-      const url = `https://api.awin.com/publishers/${awinPubId}/transactions/?startDate=2024-01-01T00:00:00&endDate=2024-01-02T00:00:00&timezone=UTC&accessToken=${awinToken}`;
-      const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${awinToken}`,
-          "Content-Type": "application/json",
-        },
-      });
-      const text = await res.text();
-      results.AWIN = {
-        status: res.ok ? "OK" : "ERROR",
+    const t = process.env.AWIN_TOKEN;
+    const pid = process.env.AWIN_PUBLISHER_ID;
+    if (t && pid) {
+      const res = await fetch(
+        `https://api.awin.com/publishers/${pid}/transactions/?startDate=2026-06-01T00:00:00&endDate=2026-06-02T00:00:00&timezone=UTC&accessToken=${t}`,
+        { headers: { Authorization: `Bearer ${t}` } }
+      );
+      const body = await res.text();
+      probes.awin = {
+        ok: res.ok,
         httpStatus: res.status,
-        bodyPreview: text.slice(0, 300),
-        env: { hasToken: !!awinToken, hasPubId: !!awinPubId },
+        bodyPreview: body.slice(0, 300),
       };
+    } else {
+      probes.awin = { ok: false, error: "missing env vars" };
     }
   } catch (e: any) {
-    results.AWIN = { status: "EXCEPTION", error: e.message };
+    probes.awin = { ok: false, error: e.message };
   }
 
-  // Impact
+  // --- Impact ---
+  env.IMPACT_ACCOUNT_SID = process.env.IMPACT_ACCOUNT_SID || "MISSING";
+  env.IMPACT_AUTH_TOKEN = process.env.IMPACT_AUTH_TOKEN ? "(set)" : "MISSING";
   try {
     const sid = process.env.IMPACT_ACCOUNT_SID;
-    const token = process.env.IMPACT_AUTH_TOKEN;
-    if (!sid || !token) {
-      results.IMPACT = { status: "NO_KEY", error: "IMPACT_ACCOUNT_SID 或 IMPACT_AUTH_TOKEN 未配置" };
-    } else {
+    const tok = process.env.IMPACT_AUTH_TOKEN;
+    if (sid && tok) {
       const res = await fetch(
-        `https://api.impact.com/Advertisers/${sid}/Actions?Page=1&PageSize=1`,
-        {
-          headers: {
-            Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64"),
-            Accept: "application/json",
-          },
-        }
+        `https://api.impact.com/Mediapartners/${sid}/Actions?Page=1&PageSize=1`,
+        { headers: { Authorization: "Basic " + Buffer.from(`${sid}:${tok}`).toString("base64"), Accept: "application/json" } }
       );
-      const text = await res.text();
-      results.IMPACT = {
-        status: res.ok ? "OK" : "ERROR",
-        httpStatus: res.status,
-        bodyPreview: text.slice(0, 300),
-        env: { hasSid: !!sid, hasToken: !!token },
-      };
-    }
-  } catch (e: any) {
-    results.IMPACT = { status: "EXCEPTION", error: e.message };
-  }
-
-  // LeadDyno
-  try {
-    const token = process.env.LEADDYNO_TOKEN;
-    if (!token) {
-      results.LEADDYNO = { status: "NO_KEY", error: "LEADDYNO_TOKEN 未配置" };
+      const body = await res.text();
+      probes.impact = { ok: res.ok, httpStatus: res.status, bodyPreview: body.slice(0, 300) };
     } else {
-      const res = await fetch("https://api.leaddyno.com/v1/purchases?page=1&per_page=1", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-      const text = await res.text();
-      results.LEADDYNO = {
-        status: res.ok ? "OK" : "ERROR",
-        httpStatus: res.status,
-        bodyPreview: text.slice(0, 300),
-        env: { hasToken: !!token },
-      };
+      probes.impact = { ok: false, error: "missing env vars" };
     }
   } catch (e: any) {
-    results.LEADDYNO = { status: "EXCEPTION", error: e.message };
+    probes.impact = { ok: false, error: e.message };
   }
 
-  // GoAffPro
+  // --- LeadDyno ---
+  env.LEADDYNO_TOKEN = process.env.LEADDYNO_TOKEN ? "(set)" : "MISSING";
+  env.LEADDYNO_PUBLIC_KEY = process.env.LEADDYNO_PUBLIC_KEY ? "(set)" : "MISSING";
   try {
-    const token = process.env.GOAFFPRO_TOKEN;
-    if (!token) {
-      results.GOAFFPRO = { status: "NO_KEY", error: "GOAFFPRO_TOKEN 未配置" };
+    const priv = process.env.LEADDYNO_TOKEN;
+    const pub = process.env.LEADDYNO_PUBLIC_KEY;
+    if (priv && pub) {
+      const res = await fetch(
+        `https://api.leaddyno.com/v1/affiliate_transactions?key=${priv}&from=2026-06-01&to=2026-06-02&per_page=1`,
+        { headers: { Authorization: pub } }
+      );
+      const body = await res.text();
+      probes.leaddyno = { ok: res.ok, httpStatus: res.status, bodyPreview: body.slice(0, 300) };
     } else {
-      const res = await fetch("https://api.goaffpro.com/v1/orders?page=1&limit=1", {
-        headers: {
-          "X-Api-Key": token,
-          "Content-Type": "application/json",
-        },
-      });
-      const text = await res.text();
-      results.GOAFFPRO = {
-        status: res.ok ? "OK" : "ERROR",
-        httpStatus: res.status,
-        bodyPreview: text.slice(0, 300),
-        env: { hasToken: !!token },
-      };
+      probes.leaddyno = { ok: false, error: "missing env vars" };
     }
   } catch (e: any) {
-    results.GOAFFPRO = { status: "EXCEPTION", error: e.message };
+    probes.leaddyno = { ok: false, error: e.message };
   }
 
-  // 环境变量检查
-  results.ENV_CHECK = {
-    AWIN_TOKEN: process.env.AWIN_TOKEN ? "已设置 (" + process.env.AWIN_TOKEN.slice(0, 4) + "...)" : "未设置",
-    AWIN_PUBLISHER_ID: process.env.AWIN_PUBLISHER_ID || "未设置",
-    IMPACT_ACCOUNT_SID: process.env.IMPACT_ACCOUNT_SID || "未设置",
-    IMPACT_AUTH_TOKEN: process.env.IMPACT_AUTH_TOKEN ? "已设置" : "未设置",
-    LEADDYNO_TOKEN: process.env.LEADDYNO_TOKEN ? "已设置" : "未设置",
-    LEADDYNO_PUBLIC_KEY: process.env.LEADDYNO_PUBLIC_KEY || "未设置",
-    GOAFFPRO_TOKEN: process.env.GOAFFPRO_TOKEN ? "已设置" : "未设置",
-    GOAFFPRO_BASE_URL: process.env.GOAFFPRO_BASE_URL || "未设置",
-    DATABASE_URL: process.env.DATABASE_URL ? "已设置" : "未设置",
-  };
+  // --- GoAffPro ---
+  env.GOAFFPRO_TOKEN = process.env.GOAFFPRO_TOKEN ? "(set)" : "MISSING";
+  env.GOAFFPRO_BASE_URL = process.env.GOAFFPRO_BASE_URL || "MISSING";
+  try {
+    const tok = process.env.GOAFFPRO_TOKEN;
+    const base = process.env.GOAFFPRO_BASE_URL;
+    if (tok && base) {
+      const apiBase = base.replace(/\/+$/, "");
+      const res = await fetch(
+        `${apiBase}/api/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+        { headers: { "X-Goaffpro-Access-Token": tok } }
+      );
+      const body = await res.text();
+      probes.goaffpro = { ok: res.ok, httpStatus: res.status, bodyPreview: body.slice(0, 300) };
+    } else {
+      probes.goaffpro = { ok: false, error: "missing env vars" };
+    }
+  } catch (e: any) {
+    probes.goaffpro = { ok: false, error: e.message };
+  }
 
-  return NextResponse.json(results);
+  return NextResponse.json({ env, probes });
 }

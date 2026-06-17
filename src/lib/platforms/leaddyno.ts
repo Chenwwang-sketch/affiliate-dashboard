@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { convertToUsd, convertToRmb } from "@/lib/currency";
 
-interface LeadDynoPurchase {
+// LeadDyno: /v1/affiliate_transactions, key=? (private), Authorization: (public)
+interface LdTransaction {
   id: string;
   email: string;
   name: string;
@@ -10,150 +11,112 @@ interface LeadDynoPurchase {
   total: number;
   commission: number;
   currency: string;
-  status: string; // "pending" | "approved" | "declined" | "refunded"
+  status: string;
   created_at: string;
-  click_created_at: string;
   decline_reason: string | null;
-  order_url: string | null;
 }
 
 function mapStatus(status: string): "PENDING" | "APPROVED" | "DECLINED" {
-  switch (status.toLowerCase()) {
-    case "pending":
-      return "PENDING";
-    case "approved":
-    case "paid":
-      return "APPROVED";
-    case "declined":
-    case "refunded":
-    case "cancelled":
-      return "DECLINED";
-    default:
-      return "PENDING";
+  switch ((status || "").toLowerCase()) {
+    case "pending": return "PENDING";
+    case "approved": case "paid": return "APPROVED";
+    case "declined": case "refunded": case "cancelled": return "DECLINED";
+    default: return "PENDING";
   }
 }
 
-export async function fetchLeadDynoPurchases(): Promise<{
-  orders: LeadDynoPurchase[];
-  error?: string;
+export async function fetchLeadDynoTransactions(): Promise<{
+  orders: LdTransaction[]; error?: string;
 }> {
-  const apiKey = process.env.LEADDYNO_TOKEN;
-  const companySlug = process.env.LEADDYNO_PUBLIC_KEY;
+  const privateKey = process.env.LEADDYNO_TOKEN;
+  const publicKey = process.env.LEADDYNO_PUBLIC_KEY;
 
-  if (!apiKey || !companySlug) {
-    return { orders: [], error: "LeadDyno API credentials not configured" };
+  if (!privateKey || !publicKey) {
+    return { orders: [], error: "LeadDyno keys not configured (need LEADDYNO_TOKEN + LEADDYNO_PUBLIC_KEY)" };
   }
 
   try {
-    const allPurchases: LeadDynoPurchase[] = [];
-    let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
-      const url = `https://api.leaddyno.com/v1/purchases?page=${page}&per_page=200`;
-
+    const allOrders: LdTransaction[] = [];
+    // 按年分批拉取全量历史
+    let year = 2020;
+    const thisYear = new Date().getFullYear();
+    
+    while (year <= thisYear) {
+      const from = `${year}-01-01`;
+      const to = `${year}-12-31`;
+      
+      const url = `https://api.leaddyno.com/v1/affiliate_transactions?key=${privateKey}&from=${from}&to=${to}&per_page=200`;
+      
       const res = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
+          Authorization: publicKey,
           "Content-Type": "application/json",
         },
       });
 
       if (!res.ok) {
-        return { orders: [], error: `LeadDyno API error: ${res.status}` };
+        const body = await res.text();
+        return { orders: [], error: `LeadDyno API ${res.status}: ${body.slice(0, 200)}` };
       }
 
-      const data = await res.json();
-      // LeadDyno 返回格式: { purchases: [...], total_pages: N }
-      const purchases = data.purchases || [];
-      allPurchases.push(...purchases);
-
-      if (page >= (data.total_pages || 1)) {
-        hasMore = false;
-      } else {
-        page++;
+      const text = await res.text();
+      try {
+        const data = JSON.parse(text);
+        const items = data.transactions || data.purchases || (Array.isArray(data) ? data : []);
+        allOrders.push(...items);
+      } catch {
+        return { orders: [], error: `LeadDyno parse error: ${text.slice(0, 200)}` };
       }
+      
+      year++;
     }
 
-    return { orders: allPurchases };
+    return { orders: allOrders };
   } catch (err: any) {
     return { orders: [], error: err.message };
   }
 }
 
 export async function syncLeadDynoOrders(): Promise<{
-  found: number;
-  newCount: number;
-  updatedCount: number;
-  error?: string;
+  found: number; newCount: number; updatedCount: number; error?: string;
 }> {
-  const { orders, error } = await fetchLeadDynoPurchases();
+  const { orders, error } = await fetchLeadDynoTransactions();
+  if (error) return { found: 0, newCount: 0, updatedCount: 0, error };
 
-  if (error) {
-    return { found: 0, newCount: 0, updatedCount: 0, error };
-  }
-
-  let newCount = 0;
-  let updatedCount = 0;
-
-  for (const purchase of orders) {
-    const status = mapStatus(purchase.status);
-    const commissionUsd = await convertToUsd(
-      purchase.commission,
-      purchase.currency || "USD"
-    );
+  let newCount = 0, updatedCount = 0;
+  for (const tx of orders) {
+    const status = mapStatus(tx.status);
+    const commissionUsd = await convertToUsd(tx.commission, tx.currency || "USD");
     const commissionRmb = await convertToRmb(commissionUsd);
+    const needsManualReview = status === "DECLINED" && !tx.decline_reason;
+    const manualReviewReason = needsManualReview ? `LeadDyno订单 ${tx.order_id} 被取消但未提供原因` : null;
 
-    const needsManualReview =
-      status === "DECLINED" && !purchase.decline_reason;
-    const manualReviewReason = needsManualReview
-      ? `LeadDyno订单 ${purchase.order_id} 被取消但未提供原因，需人工确认`
-      : null;
-
-    const data = {
+    const orderData = {
       platform: "LEADDYNO" as const,
-      platformOrderId: purchase.order_id || purchase.id,
-      status,
-      commissionAmount: purchase.commission,
-      commissionCurrency: purchase.currency || "USD",
-      commissionUsd,
-      commissionRmb,
-      saleAmount: purchase.total || null,
-      saleCurrency: purchase.currency || "USD",
-      orderDate: new Date(purchase.created_at),
-      clickDate: purchase.click_created_at
-        ? new Date(purchase.click_created_at)
-        : null,
-      customerName: purchase.name || null,
-      customerEmail: purchase.email || null,
-      productName: purchase.product_name || null,
-      orderUrl: purchase.order_url || null,
-      declineReason: purchase.decline_reason || null,
-      needsManualReview,
-      manualReviewReason,
-      rawData: purchase as any,
+      platformOrderId: tx.order_id || tx.id,
+      status, commissionAmount: tx.commission, commissionCurrency: tx.currency || "USD",
+      commissionUsd, commissionRmb,
+      saleAmount: tx.total || null, saleCurrency: tx.currency || "USD",
+      orderDate: new Date(tx.created_at),
+      customerName: tx.name || null,
+      customerEmail: tx.email || null,
+      productName: tx.product_name || null,
+      declineReason: tx.decline_reason || null,
+      needsManualReview, manualReviewReason,
+      rawData: tx as any,
     };
 
     const existing = await prisma.order.findUnique({
-      where: {
-        platform_platformOrderId: {
-          platform: "LEADDYNO",
-          platformOrderId: purchase.order_id || purchase.id,
-        },
-      },
+      where: { platform_platformOrderId: { platform: "LEADDYNO", platformOrderId: tx.order_id || tx.id } },
     });
 
     if (existing) {
-      await prisma.order.update({
-        where: { id: existing.id },
-        data: { ...data, id: existing.id },
-      });
+      await prisma.order.update({ where: { id: existing.id }, data: { ...orderData, id: existing.id } });
       updatedCount++;
     } else {
-      await prisma.order.create({ data });
+      await prisma.order.create({ data: orderData });
       newCount++;
     }
   }
-
   return { found: orders.length, newCount, updatedCount };
 }
