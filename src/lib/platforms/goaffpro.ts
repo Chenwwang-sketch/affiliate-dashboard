@@ -38,8 +38,8 @@ export async function fetchGoAffProOrders(): Promise<{
   orders: GoAffProOrder[];
   error?: string;
 }> {
-  const apiKey = process.env.GOAFFPRO_API_KEY;
-  const affiliateId = process.env.GOAFFPRO_AFFILIATE_ID;
+  const apiKey = process.env.GOAFFPRO_TOKEN;
+  const baseUrl = process.env.GOAFFPRO_BASE_URL;
 
   if (!apiKey) {
     return { orders: [], error: "GoAffPro API key not configured" };
@@ -51,8 +51,8 @@ export async function fetchGoAffProOrders(): Promise<{
     let hasMore = true;
 
     while (hasMore) {
-      const url = `https://api.goaffpro.com/v1/orders?page=${page}&limit=200`;
-      if (affiliateId) url + `&affiliate_id=${affiliateId}`;
+      const apiBase = baseUrl || "https://api.goaffpro.com";
+      const url = `${apiBase}/v1/orders?page=${page}&limit=200`;
 
       const res = await fetch(url, {
         headers: {

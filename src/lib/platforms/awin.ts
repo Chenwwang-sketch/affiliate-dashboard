@@ -41,7 +41,7 @@ export async function fetchAwinOrders(): Promise<{
   orders: AwinTransaction[];
   error?: string;
 }> {
-  const apiKey = process.env.AWIN_API_KEY;
+  const apiKey = process.env.AWIN_TOKEN;
   const publisherId = process.env.AWIN_PUBLISHER_ID;
 
   if (!apiKey) {

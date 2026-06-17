@@ -37,8 +37,8 @@ export async function fetchLeadDynoPurchases(): Promise<{
   orders: LeadDynoPurchase[];
   error?: string;
 }> {
-  const apiKey = process.env.LEADDYNO_API_KEY;
-  const companySlug = process.env.LEADDYNO_COMPANY_SLUG;
+  const apiKey = process.env.LEADDYNO_TOKEN;
+  const companySlug = process.env.LEADDYNO_PUBLIC_KEY;
 
   if (!apiKey || !companySlug) {
     return { orders: [], error: "LeadDyno API credentials not configured" };

@@ -35,16 +35,16 @@ const PLATFORM_INFO: Record<string, { label: string; color: string; fields: { ke
     label: "LeadDyno",
     color: "bg-emerald-500",
     fields: [
-      { key: "apiKey", label: "API Key", type: "password", placeholder: "输入 LeadDyno API Key" },
-      { key: "accountId", label: "Company Slug", type: "text", placeholder: "输入公司标识 (slug)" },
+      { key: "apiKey", label: "API Token", type: "password", placeholder: "输入 LeadDyno API Token" },
+      { key: "accountId", label: "Public Key", type: "text", placeholder: "输入 Public Key" },
     ],
   },
   GOAFFPRO: {
     label: "GoAffPro",
     color: "bg-purple-500",
     fields: [
-      { key: "apiKey", label: "API Key", type: "password", placeholder: "输入 GoAffPro API Key" },
-      { key: "accountId", label: "Affiliate ID", type: "text", placeholder: "输入 Affiliate ID（可选）" },
+      { key: "apiKey", label: "API Token", type: "password", placeholder: "输入 GoAffPro API Token" },
+      { key: "accountId", label: "Base URL", type: "text", placeholder: "输入 API Base URL（可选）" },
     ],
   },
 };
