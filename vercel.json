@@ -1,0 +1,24 @@
+{
+  "buildCommand": "prisma generate && prisma migrate deploy && next build",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "crons": [
+    {
+      "path": "/api/sync",
+      "schedule": "*/15 * * * *"
+    }
+  ],
+  "env": {
+    "DATABASE_URL": "@database-url",
+    "CRON_SECRET": "@cron-secret",
+    "AWIN_API_KEY": "@awin-api-key",
+    "AWIN_PUBLISHER_ID": "@awin-publisher-id",
+    "IMPACT_ACCOUNT_SID": "@impact-account-sid",
+    "IMPACT_AUTH_TOKEN": "@impact-auth-token",
+    "LEADDYNO_API_KEY": "@leaddyno-api-key",
+    "LEADDYNO_COMPANY_SLUG": "@leaddyno-company-slug",
+    "GOAFFPRO_API_KEY": "@goaffpro-api-key",
+    "GOAFFPRO_AFFILIATE_ID": "@goaffpro-affiliate-id",
+    "EXCHANGE_RATE_API_KEY": "@exchange-rate-api-key"
+  }
+}
