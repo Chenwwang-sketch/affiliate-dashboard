@@ -11,7 +11,10 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "vercel-build": "prisma generate && prisma migrate deploy && npx prisma db seed && next build"
+    "vercel-build": "prisma generate && prisma db push && npx prisma db seed && next build"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.15.0",
