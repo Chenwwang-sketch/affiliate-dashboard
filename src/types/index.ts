@@ -20,6 +20,7 @@ export interface OrderRow {
   needsManualReview: boolean;
   manualReviewReason: string | null;
   syncedAt: string;
+  rawData?: any; // 平台原始返回数据
 }
 
 export interface DashboardStats {
@@ -67,8 +68,9 @@ export const PLATFORM_HEADERS: Record<string, string[]> = {
     "客户名称", "产品名称", "SKU", "品牌", "事件类型", "订单链接"
   ],
   LEADDYNO: [
-    "订单号", "状态", "佣金金额", "销售额", "下单日期",
-    "客户名称", "客户邮箱", "产品名称", "订单链接"
+    "购买代码", "LeadDyno ID", "状态", "佣金金额", "销售额", "币种",
+    "下单日期", "更新时间", "客户名称", "客户邮箱",
+    "推荐来源", "备注",
   ],
   GOAFFPRO: [
     "订单号", "状态", "佣金金额", "销售额", "下单日期",

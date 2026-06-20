@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import type React from "react";
 import { Search, Filter, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import {
   OrderRow,
@@ -63,7 +64,7 @@ export default function TransactionsPage() {
 
   // 动态表头：根据选中平台，合并所有平台表头
   const visibleHeaders = () => {
-    let headers = PLATFORM_HEADERS["AWIN"]; // 默认
+    let headers = PLATFORM_HEADERS["AWIN"];
     if (platformFilter !== "ALL") {
       headers = PLATFORM_HEADERS[platformFilter] || PLATFORM_HEADERS["AWIN"];
     } else {
@@ -71,6 +72,10 @@ export default function TransactionsPage() {
       const allHeaders = new Set<string>();
       Object.values(PLATFORM_HEADERS).forEach((h) => h.forEach((x) => allHeaders.add(x)));
       headers = Array.from(allHeaders);
+    }
+    // 非全部平台时，前置「平台」列
+    if (platformFilter === "ALL" && !headers.includes("平台")) {
+      headers.unshift("平台");
     }
     // 如果有 declined 状态订单，确保「取消原因」列存在
     if (statusFilter === "DECLINED" || orders.some((o) => o.status === "DECLINED")) {
@@ -80,19 +85,27 @@ export default function TransactionsPage() {
   };
 
   const exportCSV = () => {
-    const headers = ["平台", "平台订单号", "状态", "佣金(USD)", "佣金(RMB)", "销售额", "下单日期", "产品名称", "客户名称", "取消原因"];
-    const rows = orders.map((o) => [
-      PLATFORM_LABELS[o.platform] || o.platform,
-      o.platformOrderId,
-      STATUS_LABELS[o.status] || o.status,
-      formatCurrency(o.commissionUsd, "USD"),
-      formatCurrency(o.commissionRmb, "RMB"),
-      o.saleAmount ? formatCurrency(o.saleAmount) : "",
-      formatDate(o.orderDate),
-      o.productName || "",
-      o.customerName || "",
-      o.declineReason || "",
-    ]);
+    const headers = ["平台", "平台订单号", "购买代码", "状态", "佣金(USD)", "佣金(RMB)", "销售额", "币种", "下单日期", "更新时间", "客户名称", "客户邮箱", "推荐来源", "备注", "取消原因"];
+    const rows = orders.map((o) => {
+      const raw = o.rawData || {};
+      return [
+        PLATFORM_LABELS[o.platform] || o.platform,
+        o.platformOrderId,
+        raw.purchase_code || o.platformOrderId,
+        STATUS_LABELS[o.status] || o.status,
+        formatCurrency(o.commissionUsd, "USD"),
+        formatCurrency(o.commissionRmb, "RMB"),
+        o.saleAmount ? formatCurrency(o.saleAmount) : "",
+        raw.currency || o.commissionCurrency || "",
+        formatDate(o.orderDate),
+        raw.updated_at ? formatDate(raw.updated_at) : "",
+        o.customerName || "",
+        o.customerEmail || "",
+        raw.referral_source || "",
+        raw.note || "",
+        o.declineReason || "",
+      ];
+    });
     const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -210,90 +223,114 @@ export default function TransactionsPage() {
               ) : (
                 orders.map((order) => {
                   const isDeclined = order.status === "DECLINED";
-                  return (
-                    <tr
-                      key={order.id}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-4 py-3">
-                        <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-medium">
-                          {PLATFORM_LABELS[order.platform] || order.platform}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 font-mono">
-                        {order.platformOrderId}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={cn(
-                            "inline-flex text-xs px-2 py-0.5 rounded-full font-medium",
-                            STATUS_COLORS[order.status]
-                          )}
-                        >
-                          {STATUS_LABELS[order.status]}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        <span className="font-medium text-gray-900">
-                          {formatCurrency(order.commissionUsd, "USD")}
-                        </span>
+                  const raw = order.rawData || {};
+
+                  // 表头 → 单元格内容映射
+                  const cellMap: Record<string, React.ReactNode> = {
+                    "平台": (
+                      <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-medium">
+                        {PLATFORM_LABELS[order.platform] || order.platform}
+                      </span>
+                    ),
+                    "订单号": (
+                      <span className="text-sm text-gray-600 font-mono">{order.platformOrderId}</span>
+                    ),
+                    "购买代码": (
+                      <span className="text-sm text-gray-600 font-mono">{raw.purchase_code || order.platformOrderId}</span>
+                    ),
+                    "LeadDyno ID": (
+                      <span className="text-sm text-gray-500 font-mono">{raw.id != null ? String(raw.id) : "-"}</span>
+                    ),
+                    "状态": (
+                      <span className={cn("inline-flex text-xs px-2 py-0.5 rounded-full font-medium", STATUS_COLORS[order.status])}>
+                        {STATUS_LABELS[order.status]}
+                      </span>
+                    ),
+                    "佣金金额": (
+                      <>
+                        <span className="font-medium text-gray-900">{formatCurrency(order.commissionUsd, "USD")}</span>
                         <br />
-                        <span className="text-xs text-gray-400">
-                          {formatCurrency(order.commissionRmb, "RMB")}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {order.saleAmount
-                          ? formatCurrency(order.saleAmount, order.saleCurrency || "USD")
-                          : "-"}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
-                        {formatDate(order.orderDate)}
-                      </td>
-                      {order.clickDate && (
-                        <td className="px-4 py-3 text-sm text-gray-400 whitespace-nowrap">
-                          {formatDate(order.clickDate)}
+                        <span className="text-xs text-gray-400">{formatCurrency(order.commissionRmb, "RMB")}</span>
+                      </>
+                    ),
+                    "销售额": (
+                      <span className="text-sm text-gray-600">
+                        {order.saleAmount ? formatCurrency(order.saleAmount, order.saleCurrency || "USD") : "-"}
+                      </span>
+                    ),
+                    "币种": (
+                      <span className="text-sm text-gray-500">{raw.currency || order.commissionCurrency || "USD"}</span>
+                    ),
+                    "下单日期": (
+                      <span className="text-sm text-gray-600 whitespace-nowrap">{formatDate(order.orderDate)}</span>
+                    ),
+                    "更新时间": (
+                      <span className="text-sm text-gray-400 whitespace-nowrap">
+                        {raw.updated_at ? formatDate(raw.updated_at) : "-"}
+                      </span>
+                    ),
+                    "点击日期": (
+                      <span className="text-sm text-gray-400 whitespace-nowrap">
+                        {order.clickDate ? formatDate(order.clickDate) : "-"}
+                      </span>
+                    ),
+                    "客户名称": (
+                      <span className="text-sm text-gray-600">{order.customerName || "-"}</span>
+                    ),
+                    "客户邮箱": (
+                      <span className="text-sm text-gray-500">{order.customerEmail || "-"}</span>
+                    ),
+                    "产品名称": (
+                      <span className="text-sm text-gray-600 max-w-[200px] truncate">{order.productName || "-"}</span>
+                    ),
+                    "SKU": (
+                      <span className="text-sm text-gray-500 font-mono">{order.productSku || "-"}</span>
+                    ),
+                    "推荐来源": (
+                      <span className="text-sm text-gray-500">{raw.referral_source || "-"}</span>
+                    ),
+                    "备注": (
+                      <span className="text-sm text-gray-500 max-w-[150px] truncate" title={raw.note || ""}>
+                        {raw.note || "-"}
+                      </span>
+                    ),
+                    "广告主": (
+                      <span className="text-sm text-gray-600">{raw.advertiserName || "-"}</span>
+                    ),
+                    "品牌": (
+                      <span className="text-sm text-gray-600">{raw.ActionTrackerName || "-"}</span>
+                    ),
+                    "事件类型": (
+                      <span className="text-sm text-gray-600">{raw.ActionTrackerName || "-"}</span>
+                    ),
+                    "优惠券": (
+                      <span className="text-sm text-gray-500">-</span>
+                    ),
+                    "订单链接": (
+                      order.orderUrl ? (
+                        <a href={order.orderUrl} target="_blank" rel="noopener noreferrer" className="text-primary text-xs hover:underline">查看</a>
+                      ) : (
+                        <span className="text-gray-300 text-xs">-</span>
+                      )
+                    ),
+                    "取消原因": (
+                      <span className="text-sm">
+                        {order.declineReason ? (
+                          <span className="text-red-600">{order.declineReason}</span>
+                        ) : (
+                          <span className="text-amber-500 italic">未提供原因</span>
+                        )}
+                      </span>
+                    ),
+                  };
+
+                  return (
+                    <tr key={order.id} className="hover:bg-gray-50 transition-colors">
+                      {visibleHeaders().map((header) => (
+                        <td key={header} className="px-4 py-3">
+                          {cellMap[header] ?? <span className="text-gray-300 text-xs">-</span>}
                         </td>
-                      )}
-                      <td className="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate">
-                        {order.productName || "-"}
-                      </td>
-                      {order.productSku && (
-                        <td className="px-4 py-3 text-sm text-gray-500 font-mono">
-                          {order.productSku}
-                        </td>
-                      )}
-                      {order.customerName && (
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {order.customerName}
-                        </td>
-                      )}
-                      {order.customerEmail && (
-                        <td className="px-4 py-3 text-sm text-gray-500">
-                          {order.customerEmail}
-                        </td>
-                      )}
-                      {isDeclined && (
-                        <td className="px-4 py-3 text-sm">
-                          {order.declineReason ? (
-                            <span className="text-red-600">{order.declineReason}</span>
-                          ) : (
-                            <span className="text-amber-500 italic">未提供原因</span>
-                          )}
-                        </td>
-                      )}
-                      {order.orderUrl && (
-                        <td className="px-4 py-3">
-                          <a
-                            href={order.orderUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary text-xs hover:underline"
-                          >
-                            查看
-                          </a>
-                        </td>
-                      )}
+                      ))}
                     </tr>
                   );
                 })
