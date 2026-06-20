@@ -41,11 +41,20 @@ export async function fetchAwinOrders(): Promise<{
   orders: AwinTransaction[];
   error?: string;
 }> {
-  const apiKey = process.env.AWIN_TOKEN;
-  const publisherId = process.env.AWIN_PUBLISHER_ID;
+  // 优先环境变量，fallback 到数据库
+  let apiKey = process.env.AWIN_TOKEN;
+  let publisherId = process.env.AWIN_PUBLISHER_ID;
+
+  if (!apiKey || !publisherId) {
+    const dbConfig = await prisma.platformConfig.findUnique({
+      where: { platform: "AWIN" },
+    });
+    if (dbConfig?.apiKey) apiKey = dbConfig.apiKey;
+    if (dbConfig?.accountId) publisherId = dbConfig.accountId;
+  }
 
   if (!apiKey) {
-    return { orders: [], error: "Awin API key not configured" };
+    return { orders: [], error: "Awin API key not configured (请在设置页面填入 API Token 或设置环境变量)" };
   }
 
   try {
@@ -64,7 +73,7 @@ export async function fetchAwinOrders(): Promise<{
       url.searchParams.set("startDate", startDate.toISOString().split("T")[0] + "T00:00:00");
       url.searchParams.set("endDate", batchEnd.toISOString().split("T")[0] + "T23:59:59");
       url.searchParams.set("timezone", "UTC");
-      url.searchParams.set("accessToken", apiKey);
+      // Awin 只通过 Bearer header 鉴权，不要在 URL 中重复传 accessToken
 
       const res = await fetch(url.toString(), {
         headers: {
@@ -141,12 +150,10 @@ export async function syncAwinOrders(): Promise<{
       rawData: order as any,
     };
 
-    const existing = await prisma.order.findUnique({
+    const existing = await prisma.order.findFirst({
       where: {
-        platform_platformOrderId: {
-          platform: "AWIN",
-          platformOrderId: order.orderRef || order.id,
-        },
+        platform: "AWIN",
+        platformOrderId: order.orderRef || order.id,
       },
     });
 

@@ -29,9 +29,19 @@ function mapStatus(state: string): "PENDING" | "APPROVED" | "DECLINED" {
 }
 
 export async function fetchImpactActions(): Promise<{ orders: ImpactAction[]; error?: string }> {
-  const accountSid = process.env.IMPACT_ACCOUNT_SID;
-  const authToken = process.env.IMPACT_AUTH_TOKEN || process.env.IMPACT_TOKEN;
-  if (!accountSid || !authToken) return { orders: [], error: "Impact credentials not configured" };
+  // 优先环境变量，fallback 到数据库
+  let accountSid = process.env.IMPACT_ACCOUNT_SID;
+  let authToken = process.env.IMPACT_AUTH_TOKEN || process.env.IMPACT_TOKEN;
+
+  if (!accountSid || !authToken) {
+    const dbConfig = await prisma.platformConfig.findUnique({
+      where: { platform: "IMPACT" },
+    });
+    if (dbConfig?.apiKey) accountSid = dbConfig.apiKey;
+    if (dbConfig?.apiSecret) authToken = dbConfig.apiSecret;
+  }
+
+  if (!accountSid || !authToken) return { orders: [], error: "Impact credentials not configured (请在设置页面填入 Account SID 和 Auth Token 或设置环境变量)" };
 
   try {
     const allActions: ImpactAction[] = [];
@@ -92,8 +102,8 @@ export async function syncImpactOrders(): Promise<{
       rawData: action as any,
     };
 
-    const existing = await prisma.order.findUnique({
-      where: { platform_platformOrderId: { platform: "IMPACT", platformOrderId: action.OrderId || action.Id } },
+    const existing = await prisma.order.findFirst({
+      where: { platform: "IMPACT", platformOrderId: action.OrderId || action.Id },
     });
 
     if (existing) {

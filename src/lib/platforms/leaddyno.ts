@@ -31,10 +31,30 @@ async function tryFetch(url: string, headers: Record<string, string>): Promise<{
   }
 }
 
+/**
+ * 获取 LeadDyno 凭证：优先从环境变量读取，fallback 到数据库 PlatformConfig 表
+ */
+async function getLeadDynoCredentials(): Promise<{ token: string; pubKey: string | null }> {
+  let token = process.env.LEADDYNO_TOKEN;
+  let pubKey = process.env.LEADDYNO_PUBLIC_KEY || null;
+
+  // 如果环境变量没有设置，从数据库读取（用户在 Settings 页面填写的）
+  if (!token) {
+    const dbConfig = await prisma.platformConfig.findUnique({
+      where: { platform: "LEADDYNO" },
+    });
+    if (dbConfig?.apiKey) {
+      token = dbConfig.apiKey;
+      pubKey = dbConfig.accountId || null;
+    }
+  }
+
+  return { token: token || "", pubKey };
+}
+
 export async function fetchLeadDynoTransactions(): Promise<{ orders: LdTransaction[]; error?: string }> {
-  const token = process.env.LEADDYNO_TOKEN;
-  const pubKey = process.env.LEADDYNO_PUBLIC_KEY;
-  if (!token) return { orders: [], error: "LEADDYNO_TOKEN not set" };
+  const { token, pubKey } = await getLeadDynoCredentials();
+  if (!token) return { orders: [], error: "LEADDYNO_TOKEN not set (请在设置页面填入 API Token 或设置环境变量)" };
 
   const year = new Date().getFullYear();
   const all: LdTransaction[] = [];
@@ -98,8 +118,8 @@ export async function syncLeadDynoOrders(): Promise<{ found: number; newCount: n
       rawData: tx as any,
     };
 
-    const existing = await prisma.order.findUnique({
-      where: { platform_platformOrderId: { platform: "LEADDYNO", platformOrderId: tx.order_id || tx.id } },
+    const existing = await prisma.order.findFirst({
+      where: { platform: "LEADDYNO", platformOrderId: tx.order_id || tx.id },
     });
     if (existing) { await prisma.order.update({ where: { id: existing.id }, data: { ...d, id: existing.id } }); updatedCount++; }
     else { await prisma.order.create({ data: d }); newCount++; }

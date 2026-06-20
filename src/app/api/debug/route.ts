@@ -19,7 +19,7 @@ export async function GET() {
   try {
     const t = process.env.AWIN_TOKEN; const pid = process.env.AWIN_PUBLISHER_ID;
     if (t && pid) {
-      const r = await tryFetch(`https://api.awin.com/publishers/${pid}/transactions/?startDate=2026-06-01T00:00:00&endDate=2026-06-02T00:00:00&timezone=UTC&accessToken=${t}`, { Authorization: `Bearer ${t}` });
+      const r = await tryFetch(`https://api.awin.com/publishers/${pid}/transactions/?startDate=2026-06-01T00:00:00&endDate=2026-06-02T00:00:00&timezone=UTC`, { Authorization: `Bearer ${t}` });
       probes.awin = { ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview };
     } else { probes.awin = { ok: false, error: "missing env" }; }
   } catch (e: any) { probes.awin = { ok: false, error: e.message }; }
@@ -63,8 +63,15 @@ export async function GET() {
     const tok = process.env.GOAFFPRO_TOKEN; const base = process.env.GOAFFPRO_BASE_URL;
     if (tok && base && base !== "MISSING") {
       const apiBase = base.replace(/\/+$/, "");
-      const r = await tryFetch(`${apiBase}/api/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`, { "X-Goaffpro-Access-Token": tok });
-      probes.goaffpro = { ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview };
+      // 尝试两个 API 端点: 用户配置的域名 + api.goaffpro.com
+      const urls = [`${apiBase}/orders?from=2026-06-01&to=2026-06-02&limit=1`, `https://api.goaffpro.com/orders?from=2026-06-01&to=2026-06-02&limit=1`];
+      let best: any = null;
+      for (const u of urls) {
+        const r = await tryFetch(u, { "X-Goaffpro-Access-Token": tok });
+        best = { ...r, url: u };
+        if (r.ok && !r.isHtml) break;
+      }
+      probes.goaffpro = { ok: best?.ok || false, httpStatus: best?.httpStatus, isHtml: best?.isHtml, testedUrl: best?.url, bodyPreview: best?.bodyPreview };
     } else { probes.goaffpro = { ok: false, error: "missing env" }; }
   } catch (e: any) { probes.goaffpro = { ok: false, error: e.message }; }
 

@@ -29,11 +29,20 @@ function mapStatus(status: string): "PENDING" | "APPROVED" | "DECLINED" {
 export async function fetchGoAffProOrders(): Promise<{
   orders: GaOrder[]; error?: string;
 }> {
-  const token = process.env.GOAFFPRO_TOKEN;
-  const baseUrl = process.env.GOAFFPRO_BASE_URL;
+  // 优先环境变量，fallback 到数据库
+  let token = process.env.GOAFFPRO_TOKEN;
+  let baseUrl = process.env.GOAFFPRO_BASE_URL;
 
-  if (!token) return { orders: [], error: "GOAFFPRO_TOKEN not configured" };
-  if (!baseUrl) return { orders: [], error: "GOAFFPRO_BASE_URL not configured" };
+  if (!token || !baseUrl) {
+    const dbConfig = await prisma.platformConfig.findUnique({
+      where: { platform: "GOAFFPRO" },
+    });
+    if (dbConfig?.apiKey) token = dbConfig.apiKey;
+    if (dbConfig?.accountId) baseUrl = dbConfig.accountId;
+  }
+
+  if (!token) return { orders: [], error: "GOAFFPRO_TOKEN not configured (请在设置页面填入 API Token 或设置环境变量)" };
+  if (!baseUrl) return { orders: [], error: "GOAFFPRO_BASE_URL not configured (请在设置页面填入 Base URL 或设置环境变量)" };
 
   // 去掉末尾斜杠
   const apiBase = baseUrl.replace(/\/+$/, "");
@@ -43,8 +52,35 @@ export async function fetchGoAffProOrders(): Promise<{
     let page = 1;
     let hasMore = true;
 
+    // GoAffPro 标准 API 端点是 /orders，不是 /api/admin/orders
+    // 如果用户填的是面板域名（如 xxx.goaffpro.com），自动尝试 api.goaffpro.com
+    const apiUrls = [
+      `${apiBase}/orders`,
+      `https://api.goaffpro.com/orders`,
+    ];
+
+    let workingBaseUrl = "";
+    // 探测哪个 URL 可用
+    for (const testUrl of apiUrls) {
+      const testFullUrl = `${testUrl}?from=2026-06-01&to=2026-06-02&limit=1`;
+      try {
+        const r = await fetch(testFullUrl, {
+          headers: { "X-Goaffpro-Access-Token": token, "Content-Type": "application/json" },
+        });
+        const text = await r.text();
+        if (r.ok && !text.trim().startsWith("<")) {
+          workingBaseUrl = testUrl;
+          break;
+        }
+      } catch {}
+    }
+
+    if (!workingBaseUrl) {
+      return { orders: [], error: `GoAffPro: 无法连接到 API，请检查 GOAFFPRO_BASE_URL 是否正确（当前: ${baseUrl}）。建议改为 https://api.goaffpro.com` };
+    }
+
     while (hasMore) {
-      const url = `${apiBase}/api/admin/orders?from=2020-01-01&to=${new Date().toISOString().slice(0, 10)}&limit=200&page=${page}`;
+      const url = `${workingBaseUrl}?from=2020-01-01&to=${new Date().toISOString().slice(0, 10)}&limit=200&page=${page}`;
       
       const res = await fetch(url, {
         headers: {
@@ -106,8 +142,8 @@ export async function syncGoAffProOrders(): Promise<{
       rawData: order as any,
     };
 
-    const existing = await prisma.order.findUnique({
-      where: { platform_platformOrderId: { platform: "GOAFFPRO", platformOrderId: order.order_number || order.order_id } },
+    const existing = await prisma.order.findFirst({
+      where: { platform: "GOAFFPRO", platformOrderId: order.order_number || order.order_id },
     });
 
     if (existing) {

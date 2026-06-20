@@ -12,16 +12,8 @@ const PLATFORM_SYNCERS = {
   GOAFFPRO: syncGoAffProOrders,
 };
 
-// POST /api/sync - 全量同步所有平台
-export async function POST(request: NextRequest) {
-  // 验证 Cron Secret
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
+// 共享的同步逻辑
+async function runAllSyncs() {
   const platforms = ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"] as const;
   const results: Record<string, any> = {};
 
@@ -71,11 +63,32 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  return results;
+}
+
+// POST /api/sync - 手动触发全量同步（需要 Authorization）
+export async function POST(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const results = await runAllSyncs();
   return NextResponse.json({ results, syncedAt: new Date().toISOString() });
 }
 
-// GET /api/sync - 获取最近同步日志
-export async function GET() {
+// GET /api/sync - Vercel Cron 触发同步，或查看日志
+export async function GET(request: NextRequest) {
+  // Vercel Cron Job 会发送 x-vercel-cron 头，自动触发全量同步
+  const isVercelCron = request.headers.get("x-vercel-cron");
+  if (isVercelCron) {
+    const results = await runAllSyncs();
+    return NextResponse.json({ results, syncedAt: new Date().toISOString() });
+  }
+
+  // 普通 GET 请求：返回最近同步日志
   const logs = await prisma.syncLog.findMany({
     orderBy: { startedAt: "desc" },
     take: 20,
