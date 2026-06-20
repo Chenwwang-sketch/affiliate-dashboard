@@ -68,10 +68,12 @@ export async function fetchLeadDynoTransactions(): Promise<{ orders: LdTransacti
 
   const all: LdTransaction[] = [];
 
-  // 尝试鉴权方式
+  // 尝试鉴权方式（按可靠性排序）
   const strategies = [
-    { name: "Bearer", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
-    ...(pubKey ? [{ name: "PublicKey+Key", headers: { Authorization: pubKey, "Content-Type": "application/json" }, useKeyParam: true }] : []),
+    { name: "仅key参数", headers: {} as Record<string,string>, useKeyParam: true },
+    { name: "key+Bearer", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, useKeyParam: true },
+    ...(pubKey ? [{ name: "key+PublicKey", headers: { Authorization: pubKey, "Content-Type": "application/json" }, useKeyParam: true }] : []),
+    { name: "仅Bearer", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, useKeyParam: false },
   ];
 
   let workingStrategy: typeof strategies[0] | null = null;

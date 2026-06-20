@@ -41,24 +41,37 @@ export async function GET() {
     } else { probes.impact = { ok: false, error: "missing env" }; }
   } catch (e: any) { probes.impact = { ok: false, error: e.message }; }
 
-  // --- LeadDyno: 自动探测鉴权 ---
+  // --- LeadDyno: 多种鉴权策略探测，全部展示便于验证数据真实性 ---
   env.LEADDYNO_TOKEN = process.env.LEADDYNO_TOKEN ? "(set)" : "MISSING";
   env.LEADDYNO_PUBLIC_KEY = process.env.LEADDYNO_PUBLIC_KEY ? "(set)" : "MISSING";
   try {
     const t = process.env.LEADDYNO_TOKEN; const pub = process.env.LEADDYNO_PUBLIC_KEY;
     if (!t) { probes.leaddyno = { ok: false, error: "LEADDYNO_TOKEN missing" }; }
     else {
+      const allResults: any[] = [];
+      // 策略1: 纯 key URL 参数（最常见、最可靠的鉴权方式）
       const strategies = [
-        { name: "Bearer", headers: { Authorization: `Bearer ${t}` }, url: `https://api.leaddyno.com/v1/purchases?per_page=1` },
-        ...(pub ? [{ name: "Key+PublicKey", headers: { Authorization: pub }, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` }] : []),
+        { name: "仅key参数(推荐)", headers: {} as Record<string,string>, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` },
+        { name: "key+Bearer", headers: { Authorization: `Bearer ${t}` }, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` },
+        ...(pub ? [
+          { name: "key+PublicKey", headers: { Authorization: pub }, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` },
+        ] : []),
+        { name: "仅Bearer", headers: { Authorization: `Bearer ${t}` }, url: `https://api.leaddyno.com/v1/purchases?per_page=1` },
       ];
-      let best: any = null;
       for (const s of strategies) {
         const r = await tryFetch(s.url, s.headers);
-        best = { ...r, strategy: s.name };
-        if (r.ok) break;
+        allResults.push({ strategy: s.name, ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview });
       }
-      probes.leaddyno = { ok: best?.ok || false, httpStatus: best?.httpStatus, isHtml: best?.isHtml, strategy: best?.strategy, bodyPreview: best?.bodyPreview };
+      // 找出第一个成功的
+      const working = allResults.find(r => r.ok);
+      probes.leaddyno = {
+        ok: !!working,
+        workingStrategy: working?.strategy || "none",
+        httpStatus: working?.httpStatus,
+        isHtml: working?.isHtml,
+        bodyPreview: working?.bodyPreview,
+        allStrategies: allResults,
+      };
     }
   } catch (e: any) { probes.leaddyno = { ok: false, error: e.message }; }
 
