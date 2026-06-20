@@ -150,8 +150,8 @@ export async function syncLeadDynoOrders(): Promise<{ found: number; newCount: n
     const status = mapStatus(tx.cancelled);
     const platformOrderId = tx.purchase_code || String(tx.id);
 
-    // 佣金：优先用 commission_amount，其次 commission_amount_override，都没有则用 purchase_amount
-    const rawCommission = tx.commission_amount ?? tx.commission_amount_override ?? parseFloat(tx.purchase_amount || "0");
+    // 佣金：优先 commission_amount，其次 commission_amount_override，都没有则为 0
+    const rawCommission = tx.commission_amount ?? tx.commission_amount_override ?? 0;
     const saleAmount = parseFloat(tx.purchase_amount || "0");
 
     const usd = await convertToUsd(rawCommission, tx.currency || "USD");
