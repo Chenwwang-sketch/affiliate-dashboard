@@ -33,18 +33,14 @@ export async function GET() {
       _sum: { commissionUsd: true },
     }),
 
-    // 近30天每日统计
-    prisma.order.groupBy({
-      by: ["orderDate"],
-      where: {
-        orderDate: {
-          gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-        },
-      },
-      _count: { id: true },
-      _sum: { commissionUsd: true },
-      orderBy: { orderDate: "asc" },
-    }),
+    // 近30天每日统计 — 按日期分组而非按 DateTime
+    prisma.$queryRaw<{ date: string; count: bigint; commissionUsd: number }[]>`
+      SELECT DATE("order_date") as date, COUNT(*)::int as count, COALESCE(SUM("commission_usd"), 0) as "commissionUsd"
+      FROM "orders"
+      WHERE "order_date" >= ${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)}
+      GROUP BY DATE("order_date")
+      ORDER BY date ASC
+    `,
   ]);
 
   const statusMap: Record<string, { count: number; commissionUsd: number; commissionRmb: number }> = {
@@ -87,10 +83,10 @@ export async function GET() {
       total: p._count.id,
       commissionUsd: Number(p._sum.commissionUsd || 0),
     })),
-    dailyStats: dailyStats.map((d) => ({
-      date: d.orderDate.toISOString().split("T")[0],
-      count: d._count.id,
-      commissionUsd: Number(d._sum.commissionUsd || 0),
+    dailyStats: dailyStats.map((d: any) => ({
+      date: d.date,
+      count: Number(d.count),
+      commissionUsd: Number(d.commissionUsd),
     })),
     needsReviewCount,
   });
