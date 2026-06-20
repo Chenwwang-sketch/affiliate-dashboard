@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
       syncedAt: o.syncedAt.toISOString(),
       createdAt: o.createdAt.toISOString(),
       updatedAt: o.updatedAt.toISOString(),
+      rawData: o.rawData ?? null,
     })),
     pagination: {
       page,
