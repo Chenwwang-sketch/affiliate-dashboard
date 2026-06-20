@@ -49,7 +49,7 @@ export async function GET() {
     if (!t) { probes.leaddyno = { ok: false, error: "LEADDYNO_TOKEN missing" }; }
     else {
       const allResults: any[] = [];
-      // 策略1: 纯 key URL 参数（最常见、最可靠的鉴权方式）
+      // 策略1: 纯 key URL 参数 + 最早日期探测
       const strategies = [
         { name: "仅key参数(推荐)", headers: {} as Record<string,string>, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` },
         { name: "key+Bearer", headers: { Authorization: `Bearer ${t}` }, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` },
@@ -57,6 +57,8 @@ export async function GET() {
           { name: "key+PublicKey", headers: { Authorization: pub }, url: `https://api.leaddyno.com/v1/purchases?key=${t}&per_page=1` },
         ] : []),
         { name: "仅Bearer", headers: { Authorization: `Bearer ${t}` }, url: `https://api.leaddyno.com/v1/purchases?per_page=1` },
+        // 探测历史数据：拉最早的 1 条，验证 from/to 是否生效
+        { name: "历史探测(from=2025-01-01)", headers: {} as Record<string,string>, url: `https://api.leaddyno.com/v1/purchases?key=${t}&from=2025-01-01&to=2025-01-31&per_page=1` },
       ];
       for (const s of strategies) {
         const r = await tryFetch(s.url, s.headers);
