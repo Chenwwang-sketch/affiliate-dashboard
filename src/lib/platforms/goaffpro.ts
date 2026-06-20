@@ -52,9 +52,10 @@ export async function fetchGoAffProOrders(): Promise<{
     let page = 1;
     let hasMore = true;
 
-    // GoAffPro 标准 API 端点是 /orders，不是 /api/admin/orders
-    // 如果用户填的是面板域名（如 xxx.goaffpro.com），自动尝试 api.goaffpro.com
+    // GoAffPro API 端点探测：尝试多种路径组合
     const apiUrls = [
+      `${apiBase}/admin/orders`,
+      `https://api.goaffpro.com/admin/orders`,
       `${apiBase}/orders`,
       `https://api.goaffpro.com/orders`,
     ];

@@ -63,8 +63,13 @@ export async function GET() {
     const tok = process.env.GOAFFPRO_TOKEN; const base = process.env.GOAFFPRO_BASE_URL;
     if (tok && base && base !== "MISSING") {
       const apiBase = base.replace(/\/+$/, "");
-      // 尝试两个 API 端点: 用户配置的域名 + api.goaffpro.com
-      const urls = [`${apiBase}/orders?from=2026-06-01&to=2026-06-02&limit=1`, `https://api.goaffpro.com/orders?from=2026-06-01&to=2026-06-02&limit=1`];
+      // 尝试多种 API 端点组合
+      const urls = [
+        `${apiBase}/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+        `https://api.goaffpro.com/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+        `${apiBase}/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+        `https://api.goaffpro.com/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+      ];
       let best: any = null;
       for (const u of urls) {
         const r = await tryFetch(u, { "X-Goaffpro-Access-Token": tok });

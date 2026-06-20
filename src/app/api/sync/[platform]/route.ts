@@ -17,27 +17,11 @@ const PLATFORM_SYNCERS: Record<string, () => Promise<{
   goaffpro: syncGoAffProOrders,
 };
 
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { platform: string } }
-) {
-  const platform = params.platform?.toLowerCase();
-  const syncer = PLATFORM_SYNCERS[platform || ""];
+async function runPlatformSync(platform: string) {
+  const syncer = PLATFORM_SYNCERS[platform];
+  if (!syncer) return { error: "Invalid platform", status: 400 };
 
-  if (!syncer) {
-    return NextResponse.json(
-      { error: "Invalid platform" },
-      { status: 400 }
-    );
-  }
-
-  const authHeader = request.headers.get("authorization");
-  const cronSecret = process.env.CRON_SECRET;
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const platformUpper = platform!.toUpperCase() as any;
+  const platformUpper = platform.toUpperCase() as any;
   const log = await prisma.syncLog.create({
     data: {
       platform: platformUpper,
@@ -63,7 +47,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ ...result, status: result.error ? "FAILED" : "SUCCESS" });
+    return { ...result, status: result.error ? "FAILED" : "SUCCESS", statusCode: 200 };
   } catch (err: any) {
     await prisma.syncLog.update({
       where: { id: log.id },
@@ -73,6 +57,33 @@ export async function POST(
         finishedAt: new Date(),
       },
     });
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return { error: err.message, status: "FAILED", statusCode: 500 };
   }
+}
+
+// POST /api/sync/[platform] - 手动触发（需 CRON_SECRET）
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { platform: string } }
+) {
+  const platform = params.platform?.toLowerCase();
+
+  const authHeader = request.headers.get("authorization");
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const result = await runPlatformSync(platform!);
+  return NextResponse.json(result, { status: result.statusCode || 200 });
+}
+
+// GET /api/sync/[platform] - 浏览器直接访问触发同步（方便调试）
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: { platform: string } }
+) {
+  const platform = params.platform?.toLowerCase();
+  const result = await runPlatformSync(platform!);
+  return NextResponse.json(result, { status: result.statusCode || 200 });
 }
