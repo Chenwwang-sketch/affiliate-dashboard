@@ -100,10 +100,9 @@ export async function fetchGoAffProOrders(): Promise<{
   try {
     const allOrders: GaOrder[] = [];
     
-    // 拉取近 180 天数据，按月分批，并行请求
+    // 拉取全部历史数据（最早到 2020 年），按月分批并行
     const endDate = new Date();
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 180);
+    const startDate = new Date("2020-01-01");
 
     const batchUrls: { from: string; to: string; url: string }[] = [];
     let currentStart = new Date(startDate);

@@ -88,10 +88,9 @@ export async function fetchLeadDynoTransactions(): Promise<{ orders: LdTransacti
 
   if (!workingStrategy) return { orders: [], error: "LeadDyno: all auth strategies failed" };
 
-  // 拉取最近 180 天数据，并行请求按月分批，大幅缩短耗时
+  // 拉取全部历史数据（最早到 2020 年），按月分批并行
   const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(startDate.getDate() - 180);
+  const startDate = new Date("2020-01-01");
 
   // 构建所有月份的 URL
   const batchUrls: { from: string; to: string; url: string }[] = [];
