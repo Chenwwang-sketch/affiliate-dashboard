@@ -66,10 +66,9 @@ export async function fetchLeadDynoTransactions(): Promise<{ orders: LdTransacti
   const { token, pubKey } = await getLeadDynoCredentials();
   if (!token) return { orders: [], error: "LEADDYNO_TOKEN not set (请在设置页面填入 API Token 或设置环境变量)" };
 
-  const year = new Date().getFullYear();
   const all: LdTransaction[] = [];
 
-  // 尝试三种鉴权方式
+  // 尝试鉴权方式
   const strategies = [
     { name: "Bearer", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } },
     ...(pubKey ? [{ name: "PublicKey+Key", headers: { Authorization: pubKey, "Content-Type": "application/json" }, useKeyParam: true }] : []),
@@ -77,7 +76,6 @@ export async function fetchLeadDynoTransactions(): Promise<{ orders: LdTransacti
 
   let workingStrategy: typeof strategies[0] | null = null;
 
-  // 先探测哪种鉴权可用
   for (const s of strategies) {
     const testUrl = s.useKeyParam
       ? `https://api.leaddyno.com/v1/purchases?key=${token}&per_page=1`
@@ -88,15 +86,42 @@ export async function fetchLeadDynoTransactions(): Promise<{ orders: LdTransacti
 
   if (!workingStrategy) return { orders: [], error: "LeadDyno: all auth strategies failed" };
 
-  // 拉取全量
-  for (let y = 2020; y <= year; y++) {
-    const url = workingStrategy.useKeyParam
-      ? `https://api.leaddyno.com/v1/purchases?key=${token}&from=${y}-01-01&to=${y}-12-31&per_page=200`
-      : `https://api.leaddyno.com/v1/purchases?from=${y}-01-01&to=${y}-12-31&per_page=200`;
-    const result = await tryFetch(url, workingStrategy.headers);
-    if (!result.ok) return { orders: [], error: `LeadDyno fetch error: ${result.error}` };
-    const items = result.data?.purchases || result.data?.transactions || (Array.isArray(result.data) ? result.data : []);
-    all.push(...items);
+  // 拉取最近 180 天数据，按月分批 + 分页，确保不漏
+  const endDate = new Date();
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - 180);
+
+  let currentStart = new Date(startDate);
+  while (currentStart < endDate) {
+    const batchEnd = new Date(currentStart);
+    batchEnd.setMonth(batchEnd.getMonth() + 1);
+    if (batchEnd > endDate) batchEnd.setTime(endDate.getTime());
+
+    const from = currentStart.toISOString().split("T")[0];
+    const to = batchEnd.toISOString().split("T")[0];
+
+    // 分页拉取该月所有数据
+    let page = 1;
+    let hasMore = true;
+    while (hasMore) {
+      const baseUrl = workingStrategy.useKeyParam
+        ? `https://api.leaddyno.com/v1/purchases?key=${token}&from=${from}&to=${to}&per_page=500&page=${page}`
+        : `https://api.leaddyno.com/v1/purchases?from=${from}&to=${to}&per_page=500&page=${page}`;
+      
+      const result = await tryFetch(baseUrl, workingStrategy.headers);
+      if (!result.ok) return { orders: [], error: `LeadDyno fetch error (${from}~${to}, page ${page}): ${result.error}` };
+
+      const items: LdTransaction[] = result.data?.purchases || result.data?.transactions || (Array.isArray(result.data) ? result.data : []);
+      all.push(...items);
+
+      // 如果返回不足 500 条，说明该月已拉完
+      hasMore = items.length >= 500;
+      page++;
+    }
+
+    currentStart = new Date(batchEnd);
+    currentStart.setDate(currentStart.getDate() + 1);
+    if (currentStart > endDate) break;
   }
 
   return { orders: all };
