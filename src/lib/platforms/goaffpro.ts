@@ -48,7 +48,7 @@ export async function fetchGoAffProOrders(): Promise<{
   const apiBase = baseUrl.replace(/\/+$/, "");
 
   // 尝试多种鉴权头 + 端点组合
-  const authHeadersList = [
+  const authHeadersList: Record<string, string>[] = [
     { "X-Goaffpro-Access-Token": token },
     { "X-Goaffpro-API-Key": token },
     { "Authorization": `Bearer ${token}` },
@@ -67,22 +67,22 @@ export async function fetchGoAffProOrders(): Promise<{
   const apiHosts = [apiBase, "https://api.goaffpro.com"];
 
   let workingUrl = "";
+  let workingHeaders: Record<string, string> = authHeadersList[0];
 
   // 双层遍历：主机 × 路径 × 鉴权头
   outer:
   for (const host of apiHosts) {
     for (const path of apiPaths) {
-      for (const headers of authHeadersList) {
+      for (const ah of authHeadersList) {
         const testUrl = `${host}${path}?from=2026-06-01&to=2026-06-02&limit=1`;
         try {
           const r = await fetch(testUrl, {
-            headers: { ...headers, "Content-Type": "application/json" },
+            headers: { ...ah, "Content-Type": "application/json" } as Record<string, string>,
           });
           const text = await r.text();
           if (r.ok && !text.trim().startsWith("<")) {
             workingUrl = `${host}${path}`;
-            // 保存成功的鉴权头供后续使用
-            (authHeadersList as any).working = headers;
+            workingHeaders = ah;
             break outer;
           }
         } catch {}
@@ -96,8 +96,6 @@ export async function fetchGoAffProOrders(): Promise<{
       error: `GoAffPro: 所有端点+鉴权方式均失败。已尝试 ${apiHosts.length * apiPaths.length * authHeadersList.length} 种组合。请确认 GOAFFPRO_BASE_URL 和 GOAFFPRO_TOKEN 是否正确。`,
     };
   }
-
-  const workingHeaders = (authHeadersList as any).working || authHeadersList[0];
 
   try {
     const allOrders: GaOrder[] = [];
@@ -122,7 +120,7 @@ export async function fetchGoAffProOrders(): Promise<{
         const url = `${workingUrl}?from=${from}&to=${to}&limit=200&page=${page}`;
         
         const res = await fetch(url, {
-          headers: { ...workingHeaders, "Content-Type": "application/json" },
+          headers: { ...workingHeaders, "Content-Type": "application/json" } as Record<string, string>,
         });
 
         if (!res.ok) {
