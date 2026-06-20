@@ -31,17 +31,37 @@ function mapStatus(state: string): "PENDING" | "APPROVED" | "DECLINED" {
 export async function fetchImpactActions(): Promise<{ orders: ImpactAction[]; error?: string }> {
   // 优先环境变量，fallback 到数据库
   let accountSid = process.env.IMPACT_ACCOUNT_SID;
-  let authToken = process.env.IMPACT_AUTH_TOKEN || process.env.IMPACT_TOKEN;
+  const authTokens = [
+    process.env.IMPACT_AUTH_TOKEN,
+    process.env.IMPACT_TOKEN,
+  ].filter(Boolean) as string[];
 
-  if (!accountSid || !authToken) {
+  if (!accountSid || authTokens.length === 0) {
     const dbConfig = await prisma.platformConfig.findUnique({
       where: { platform: "IMPACT" },
     });
     if (dbConfig?.apiKey) accountSid = dbConfig.apiKey;
-    if (dbConfig?.apiSecret) authToken = dbConfig.apiSecret;
+    if (dbConfig?.apiSecret) authTokens.push(dbConfig.apiSecret);
   }
 
-  if (!accountSid || !authToken) return { orders: [], error: "Impact credentials not configured (请在设置页面填入 Account SID 和 Auth Token 或设置环境变量)" };
+  if (!accountSid || authTokens.length === 0) return { orders: [], error: "Impact credentials not configured (请在设置页面填入 Account SID 和 Auth Token 或设置环境变量)" };
+
+  // 尝试每个 token 直到成功
+  let workingToken = "";
+  for (const tok of authTokens) {
+    try {
+      const testUrl = `https://api.impact.com/Mediapartners/${accountSid}/Actions?Page=1&PageSize=1`;
+      const testRes = await fetch(testUrl, {
+        headers: {
+          Authorization: "Basic " + Buffer.from(`${accountSid}:${tok}`).toString("base64"),
+          Accept: "application/json",
+        },
+      });
+      if (testRes.ok) { workingToken = tok; break; }
+    } catch {}
+  }
+
+  if (!workingToken) return { orders: [], error: "Impact: 所有 Auth Token 均返回 401，请检查 Vercel 中的 IMPACT_AUTH_TOKEN 或 IMPACT_TOKEN" };
 
   try {
     const allActions: ImpactAction[] = [];
@@ -50,7 +70,7 @@ export async function fetchImpactActions(): Promise<{ orders: ImpactAction[]; er
       const url = `https://api.impact.com/Mediapartners/${accountSid}/Actions?Page=${page}&PageSize=500`;
       const res = await fetch(url, {
         headers: {
-          Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
+          Authorization: "Basic " + Buffer.from(`${accountSid}:${workingToken}`).toString("base64"),
           Accept: "application/json",
         },
       });

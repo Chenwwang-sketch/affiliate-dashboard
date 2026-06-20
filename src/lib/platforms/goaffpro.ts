@@ -52,12 +52,14 @@ export async function fetchGoAffProOrders(): Promise<{
     let page = 1;
     let hasMore = true;
 
-    // GoAffPro API 端点探测：尝试多种路径组合
+    // 尝试多种 GoAffPro API 端点组合
     const apiUrls = [
       `${apiBase}/admin/orders`,
       `https://api.goaffpro.com/admin/orders`,
       `${apiBase}/orders`,
       `https://api.goaffpro.com/orders`,
+      `https://api.goaffpro.com/v1/orders`,
+      `${apiBase}/api/admin/orders`,
     ];
 
     let workingBaseUrl = "";

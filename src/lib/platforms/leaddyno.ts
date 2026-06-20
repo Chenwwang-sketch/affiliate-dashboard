@@ -1,19 +1,29 @@
 import { prisma } from "@/lib/prisma";
 import { convertToUsd, convertToRmb } from "@/lib/currency";
 
+// LeadDyno API 实际返回的数据结构
 interface LdTransaction {
-  id: string; email: string; name: string; order_id: string;
-  product_name: string; total: number; commission: number; currency: string;
-  status: string; created_at: string; decline_reason: string | null;
+  id: number;
+  purchase_code: string;
+  purchase_amount: string; // 字符串数字，如 "48.18"
+  commission_amount?: number | null;
+  commission_amount_override?: number | null;
+  currency: string;
+  cancelled: boolean;
+  created_at: string;
+  updated_at: string;
+  note?: string | null;
+  referral_source?: string | null;
+  lead?: {
+    id: number;
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+  } | null;
 }
 
-function mapStatus(s: string): "PENDING" | "APPROVED" | "DECLINED" {
-  switch ((s||"").toLowerCase()) {
-    case "pending": return "PENDING";
-    case "approved": case "paid": return "APPROVED";
-    case "declined": case "refunded": case "cancelled": return "DECLINED";
-    default: return "PENDING";
-  }
+function mapStatus(cancelled: boolean): "PENDING" | "APPROVED" | "DECLINED" {
+  return cancelled ? "DECLINED" : "APPROVED";
 }
 
 async function tryFetch(url: string, headers: Record<string, string>): Promise<{ ok: boolean; data: any; error?: string }> {
@@ -98,28 +108,45 @@ export async function syncLeadDynoOrders(): Promise<{ found: number; newCount: n
 
   let newCount = 0, updatedCount = 0;
   for (const tx of orders) {
-    const status = mapStatus(tx.status);
-    const usd = await convertToUsd(tx.commission, tx.currency || "USD");
+    const status = mapStatus(tx.cancelled);
+    const platformOrderId = tx.purchase_code || String(tx.id);
+
+    // 佣金：优先用 commission_amount，其次 commission_amount_override，都没有则用 purchase_amount
+    const rawCommission = tx.commission_amount ?? tx.commission_amount_override ?? parseFloat(tx.purchase_amount || "0");
+    const saleAmount = parseFloat(tx.purchase_amount || "0");
+
+    const usd = await convertToUsd(rawCommission, tx.currency || "USD");
     const rmb = await convertToRmb(usd);
-    const needsReview = status === "DECLINED" && !tx.decline_reason;
+    const needsReview = status === "DECLINED";
+
+    // 从 lead 对象中提取客户信息
+    const customerName = tx.lead
+      ? [tx.lead.first_name, tx.lead.last_name].filter(Boolean).join(" ") || null
+      : null;
+    const customerEmail = tx.lead?.email || null;
 
     const d = {
       platform: "LEADDYNO" as const,
-      platformOrderId: tx.order_id || tx.id,
-      status, commissionAmount: tx.commission, commissionCurrency: tx.currency || "USD",
-      commissionUsd: usd, commissionRmb: rmb,
-      saleAmount: tx.total || null, saleCurrency: tx.currency || "USD",
+      platformOrderId,
+      status, 
+      commissionAmount: rawCommission,
+      commissionCurrency: tx.currency || "USD",
+      commissionUsd: usd, 
+      commissionRmb: rmb,
+      saleAmount: saleAmount || null,
+      saleCurrency: tx.currency || "USD",
       orderDate: new Date(tx.created_at),
-      customerName: tx.name || null, customerEmail: tx.email || null,
-      productName: tx.product_name || null,
-      declineReason: tx.decline_reason || null,
+      customerName,
+      customerEmail,
+      productName: null,
+      declineReason: tx.cancelled ? "订单已取消" : null,
       needsManualReview: needsReview,
-      manualReviewReason: needsReview ? `LeadDyno订单 ${tx.order_id} 被取消但未提供原因` : null,
+      manualReviewReason: needsReview ? `LeadDyno订单 ${platformOrderId} 被取消，请检查` : null,
       rawData: tx as any,
     };
 
     const existing = await prisma.order.findFirst({
-      where: { platform: "LEADDYNO", platformOrderId: tx.order_id || tx.id },
+      where: { platform: "LEADDYNO", platformOrderId },
     });
     if (existing) { await prisma.order.update({ where: { id: existing.id }, data: { ...d, id: existing.id } }); updatedCount++; }
     else { await prisma.order.create({ data: d }); newCount++; }

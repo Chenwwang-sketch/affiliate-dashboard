@@ -6,7 +6,7 @@ async function tryFetch(url: string, headers: Record<string, string>) {
   const isHtml = text.trim().startsWith("<") || text.trim().startsWith("<!DOCTYPE");
   let json: any = null;
   if (!isHtml) { try { json = JSON.parse(text); } catch {} }
-  return { ok: res.ok && !isHtml, httpStatus: res.status, isHtml, bodyPreview: text.slice(0, 300), json };
+  return { ok: res.ok && !isHtml, httpStatus: res.status, isHtml, bodyPreview: text.slice(0, 800), json };
 }
 
 export async function GET() {
@@ -19,7 +19,7 @@ export async function GET() {
   try {
     const t = process.env.AWIN_TOKEN; const pid = process.env.AWIN_PUBLISHER_ID;
     if (t && pid) {
-      const r = await tryFetch(`https://api.awin.com/publishers/${pid}/transactions/?startDate=2026-06-01T00:00:00&endDate=2026-06-02T00:00:00&timezone=UTC`, { Authorization: `Bearer ${t}` });
+      const r = await tryFetch(`https://api.awin.com/publishers/${pid}/transactions/?startDate=2026-06-01T00:00:00&endDate=2026-06-02T00:00:00&timezone=UTC&accessToken=${t}`, {});
       probes.awin = { ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview };
     } else { probes.awin = { ok: false, error: "missing env" }; }
   } catch (e: any) { probes.awin = { ok: false, error: e.message }; }
@@ -28,10 +28,16 @@ export async function GET() {
   env.IMPACT_ACCOUNT_SID = process.env.IMPACT_ACCOUNT_SID || "MISSING";
   env.IMPACT_AUTH_TOKEN = process.env.IMPACT_AUTH_TOKEN ? "(set)" : "MISSING";
   try {
-    const sid = process.env.IMPACT_ACCOUNT_SID; const tok = process.env.IMPACT_AUTH_TOKEN || process.env.IMPACT_TOKEN;
-    if (sid && tok) {
-      const r = await tryFetch(`https://api.impact.com/Mediapartners/${sid}/Actions?Page=1&PageSize=1`, { Authorization: "Basic " + Buffer.from(`${sid}:${tok}`).toString("base64"), Accept: "application/json" });
-      probes.impact = { ok: r.ok, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview };
+    const sid = process.env.IMPACT_ACCOUNT_SID;
+    const tokens = [process.env.IMPACT_AUTH_TOKEN, process.env.IMPACT_TOKEN].filter(Boolean) as string[];
+    if (sid && tokens.length > 0) {
+      let best: any = null;
+      for (const tok of tokens) {
+        const r = await tryFetch(`https://api.impact.com/Mediapartners/${sid}/Actions?Page=1&PageSize=1`, { Authorization: "Basic " + Buffer.from(`${sid}:${tok}`).toString("base64"), Accept: "application/json" });
+        best = { ...r, tokenUsed: tok === tokens[0] ? "IMPACT_AUTH_TOKEN" : "IMPACT_TOKEN" };
+        if (r.ok) break;
+      }
+      probes.impact = { ok: best?.ok || false, httpStatus: best?.httpStatus, isHtml: best?.isHtml, tokenUsed: best?.tokenUsed, bodyPreview: best?.bodyPreview };
     } else { probes.impact = { ok: false, error: "missing env" }; }
   } catch (e: any) { probes.impact = { ok: false, error: e.message }; }
 
@@ -69,6 +75,8 @@ export async function GET() {
         `https://api.goaffpro.com/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
         `${apiBase}/orders?from=2026-06-01&to=2026-06-02&limit=1`,
         `https://api.goaffpro.com/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+        `https://api.goaffpro.com/v1/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+        `${apiBase}/api/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
       ];
       let best: any = null;
       for (const u of urls) {

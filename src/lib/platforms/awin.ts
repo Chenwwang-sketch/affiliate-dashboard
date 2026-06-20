@@ -73,11 +73,10 @@ export async function fetchAwinOrders(): Promise<{
       url.searchParams.set("startDate", startDate.toISOString().split("T")[0] + "T00:00:00");
       url.searchParams.set("endDate", batchEnd.toISOString().split("T")[0] + "T23:59:59");
       url.searchParams.set("timezone", "UTC");
-      // Awin 只通过 Bearer header 鉴权，不要在 URL 中重复传 accessToken
+      url.searchParams.set("accessToken", apiKey);
 
       const res = await fetch(url.toString(), {
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
       });
