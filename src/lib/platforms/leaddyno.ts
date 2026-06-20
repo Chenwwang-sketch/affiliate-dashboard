@@ -88,54 +88,43 @@ export async function fetchLeadDynoTransactions(): Promise<{ orders: LdTransacti
 
   if (!workingStrategy) return { orders: [], error: "LeadDyno: all auth strategies failed" };
 
-  // 拉取最近 180 天数据，按周分批避免翻页兼容问题
+  // 拉取最近 180 天数据，并行请求按月分批，大幅缩短耗时
   const endDate = new Date();
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - 180);
 
+  // 构建所有月份的 URL
+  const batchUrls: { from: string; to: string; url: string }[] = [];
   let currentStart = new Date(startDate);
   while (currentStart < endDate) {
     const batchEnd = new Date(currentStart);
-    batchEnd.setDate(batchEnd.getDate() + 7); // 每次拉 7 天
+    batchEnd.setMonth(batchEnd.getMonth() + 1);
     if (batchEnd > endDate) batchEnd.setTime(endDate.getTime());
 
     const from = currentStart.toISOString().split("T")[0];
     const to = batchEnd.toISOString().split("T")[0];
-
-    // 不用 page 参数，LeadDyno API 部分版本不支持分页或限制最大 per_page
-    // 用周为单位 + per_page=500 确保单次请求不超限
     const url = workingStrategy.useKeyParam
       ? `https://api.leaddyno.com/v1/purchases?key=${token}&from=${from}&to=${to}&per_page=500`
       : `https://api.leaddyno.com/v1/purchases?from=${from}&to=${to}&per_page=500`;
 
-    const result = await tryFetch(url, workingStrategy.headers);
-    if (!result.ok) return { orders: [], error: `LeadDyno fetch error (${from}~${to}): ${result.error}` };
-
-    const items: LdTransaction[] = result.data?.purchases || result.data?.transactions || (Array.isArray(result.data) ? result.data : []);
-    all.push(...items);
-
-    // 如果本周返回了 500 条，说明可能被截断，缩小范围到按天拉
-    if (items.length >= 500 && batchEnd.getTime() - currentStart.getTime() > 86400000) {
-      // 放弃这周结果，改为按天逐日拉取
-      all.splice(all.length - items.length, items.length);
-      for (let d = new Date(currentStart); d < batchEnd; d.setDate(d.getDate() + 1)) {
-        const dayEnd = new Date(d);
-        dayEnd.setDate(dayEnd.getDate() + 1);
-        if (dayEnd > endDate) dayEnd.setTime(endDate.getTime());
-        const dayUrl = workingStrategy.useKeyParam
-          ? `https://api.leaddyno.com/v1/purchases?key=${token}&from=${d.toISOString().split("T")[0]}&to=${dayEnd.toISOString().split("T")[0]}&per_page=500`
-          : `https://api.leaddyno.com/v1/purchases?from=${d.toISOString().split("T")[0]}&to=${dayEnd.toISOString().split("T")[0]}&per_page=500`;
-        const dayResult = await tryFetch(dayUrl, workingStrategy.headers);
-        if (dayResult.ok) {
-          const dayItems: LdTransaction[] = dayResult.data?.purchases || dayResult.data?.transactions || (Array.isArray(dayResult.data) ? dayResult.data : []);
-          all.push(...dayItems);
-        }
-      }
-    }
-
+    batchUrls.push({ from, to, url });
     currentStart = new Date(batchEnd);
     currentStart.setDate(currentStart.getDate() + 1);
-    if (currentStart > endDate) break;
+  }
+
+  // 并行执行，每批 3 个请求，避免压垮 API
+  for (let i = 0; i < batchUrls.length; i += 3) {
+    const group = batchUrls.slice(i, i + 3);
+    const results = await Promise.all(
+      group.map((b) => tryFetch(b.url, workingStrategy.headers))
+    );
+
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j];
+      if (!r.ok) continue; // 跳过失败的批次，不中断整体
+      const items: LdTransaction[] = r.data?.purchases || r.data?.transactions || (Array.isArray(r.data) ? r.data : []);
+      all.push(...items);
+    }
   }
 
   return { orders: all };

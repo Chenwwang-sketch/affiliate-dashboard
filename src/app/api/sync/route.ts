@@ -12,10 +12,10 @@ const PLATFORM_SYNCERS = {
   GOAFFPRO: syncGoAffProOrders,
 };
 
-// 后台异步同步单个平台
-async function syncPlatformBackground(platform: string) {
+// 同步单个平台（含日志记录）
+async function syncPlatform(platform: string) {
   const syncer = PLATFORM_SYNCERS[platform as keyof typeof PLATFORM_SYNCERS];
-  if (!syncer) return;
+  if (!syncer) return { status: "FAILED", error: "Unknown platform" };
 
   const log = await prisma.syncLog.create({
     data: { platform: platform as any, status: "RUNNING", ordersFound: 0, ordersNew: 0, ordersUpdated: 0 },
@@ -35,19 +35,13 @@ async function syncPlatformBackground(platform: string) {
         errorJson: result.error ? { message: result.error } : undefined,
       },
     });
+    return { status: result.error ? "FAILED" : "SUCCESS", ...result };
   } catch (err: any) {
     await prisma.syncLog.update({
       where: { id: log.id },
       data: { status: "FAILED", message: err.message, finishedAt: new Date(), errorJson: { message: err.message } },
     });
-  }
-}
-
-// 后台异步同步所有平台
-async function syncAllBackground() {
-  const platforms = ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"];
-  for (const platform of platforms) {
-    await syncPlatformBackground(platform);
+    return { status: "FAILED", error: err.message };
   }
 }
 
@@ -59,9 +53,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // 后台异步执行
-  syncAllBackground().catch(console.error);
-  return NextResponse.json({ message: "全平台同步已启动（后台执行）", platforms: ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"] });
+  const platforms = ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"];
+  const results: Record<string, any> = {};
+  for (const p of platforms) {
+    results[p] = await syncPlatform(p);
+  }
+  return NextResponse.json({ results, syncedAt: new Date().toISOString() });
 }
 
 // GET /api/sync - Vercel Cron 触发同步 / 浏览器触发 / 查看日志
@@ -71,9 +68,12 @@ export async function GET(request: NextRequest) {
   const shouldRun = isVercelCron || url.searchParams.get("run") === "1";
 
   if (shouldRun) {
-    // 后台异步执行所有平台同步
-    syncAllBackground().catch(console.error);
-    return NextResponse.json({ message: "全平台同步已启动（后台执行）", syncedAt: new Date().toISOString() });
+    const platforms = ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"];
+    const results: Record<string, any> = {};
+    for (const p of platforms) {
+      results[p] = await syncPlatform(p);
+    }
+    return NextResponse.json({ results, syncedAt: new Date().toISOString() });
   }
 
   // 普通 GET 请求：返回最近同步日志

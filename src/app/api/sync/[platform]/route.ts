@@ -17,26 +17,20 @@ const PLATFORM_SYNCERS: Record<string, () => Promise<{
   goaffpro: syncGoAffProOrders,
 };
 
-async function runPlatformSync(platform: string, existingLogId?: string) {
+async function runPlatformSync(platform: string) {
   const syncer = PLATFORM_SYNCERS[platform];
   if (!syncer) return { error: "Invalid platform", status: 400 };
 
   const platformUpper = platform.toUpperCase() as any;
-
-  let log: { id: string };
-  if (existingLogId) {
-    log = { id: existingLogId };
-  } else {
-    log = await prisma.syncLog.create({
-      data: {
-        platform: platformUpper,
-        status: "RUNNING",
-        ordersFound: 0,
-        ordersNew: 0,
-        ordersUpdated: 0,
-      },
-    });
-  }
+  const log = await prisma.syncLog.create({
+    data: {
+      platform: platformUpper,
+      status: "RUNNING",
+      ordersFound: 0,
+      ordersNew: 0,
+      ordersUpdated: 0,
+    },
+  });
 
   try {
     const result = await syncer();
@@ -84,36 +78,12 @@ export async function POST(
   return NextResponse.json(result, { status: result.statusCode || 200 });
 }
 
-// GET /api/sync/[platform] - 浏览器直接访问触发同步（后台执行，立即返回）
+// GET /api/sync/[platform] - 浏览器直接访问触发同步
 export async function GET(
   _request: NextRequest,
   { params }: { params: { platform: string } }
 ) {
   const platform = params.platform?.toLowerCase() || "";
-  const platformUpper = platform.toUpperCase();
-
-  // 先创建一个 syncLog 记录
-  const log = await prisma.syncLog.create({
-    data: {
-      platform: platformUpper as any,
-      status: "RUNNING",
-      ordersFound: 0,
-      ordersNew: 0,
-      ordersUpdated: 0,
-    },
-  });
-
-  // 后台异步执行同步，不阻塞响应
-  runPlatformSync(platform, log.id).catch(async (err) => {
-    await prisma.syncLog.update({
-      where: { id: log.id },
-      data: { status: "FAILED", message: err.message, finishedAt: new Date() },
-    });
-  });
-
-  return NextResponse.json({
-    message: `LeadDyno 同步已在后台启动，正在拉取近 180 天数据...`,
-    logId: log.id,
-    hint: "刷新页面查看同步状态，完成后数据会自动出现在交易明细中",
-  });
+  const result = await runPlatformSync(platform);
+  return NextResponse.json(result, { status: result.statusCode || 200 });
 }

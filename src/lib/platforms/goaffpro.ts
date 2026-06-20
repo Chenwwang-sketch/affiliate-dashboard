@@ -100,49 +100,47 @@ export async function fetchGoAffProOrders(): Promise<{
   try {
     const allOrders: GaOrder[] = [];
     
-    // 拉取近 180 天数据，按周分批
+    // 拉取近 180 天数据，按月分批，并行请求
     const endDate = new Date();
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 180);
 
+    const batchUrls: { from: string; to: string; url: string }[] = [];
     let currentStart = new Date(startDate);
     while (currentStart < endDate) {
       const batchEnd = new Date(currentStart);
-      batchEnd.setDate(batchEnd.getDate() + 7);
+      batchEnd.setMonth(batchEnd.getMonth() + 1);
       if (batchEnd > endDate) batchEnd.setTime(endDate.getTime());
 
       const from = currentStart.toISOString().split("T")[0];
       const to = batchEnd.toISOString().split("T")[0];
-
-      let page = 1;
-      let hasMore = true;
-      while (hasMore) {
-        const url = `${workingUrl}?from=${from}&to=${to}&limit=200&page=${page}`;
-        
-        const res = await fetch(url, {
-          headers: { ...workingHeaders, "Content-Type": "application/json" } as Record<string, string>,
-        });
-
-        if (!res.ok) {
-          const body = await res.text();
-          return { orders: [], error: `GoAffPro API ${res.status}: ${body.slice(0, 200)}` };
-        }
-
-        const text = await res.text();
-        try {
-          const data = JSON.parse(text);
-          const items = data.orders || (Array.isArray(data) ? data : []);
-          allOrders.push(...items);
-          hasMore = items.length >= 200;
-          page++;
-        } catch {
-          return { orders: [], error: `GoAffPro parse error: ${text.slice(0, 200)}` };
-        }
-      }
+      batchUrls.push({ from, to, url: `${workingUrl}?from=${from}&to=${to}&limit=500` });
 
       currentStart = new Date(batchEnd);
       currentStart.setDate(currentStart.getDate() + 1);
-      if (currentStart > endDate) break;
+    }
+
+    // 并行执行，每批 3 个请求
+    for (let i = 0; i < batchUrls.length; i += 3) {
+      const group = batchUrls.slice(i, i + 3);
+      const results = await Promise.all(
+        group.map((b) =>
+          fetch(b.url, { headers: { ...workingHeaders, "Content-Type": "application/json" } as Record<string, string> })
+            .then(async (res) => {
+              const text = await res.text();
+              if (!res.ok || text.trim().startsWith("<")) return [];
+              try {
+                const data = JSON.parse(text);
+                return data.orders || (Array.isArray(data) ? data : []);
+              } catch { return []; }
+            })
+            .catch(() => [])
+        )
+      );
+
+      for (const items of results) {
+        allOrders.push(...items);
+      }
     }
 
     return { orders: allOrders };
