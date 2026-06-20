@@ -12,80 +12,68 @@ const PLATFORM_SYNCERS = {
   GOAFFPRO: syncGoAffProOrders,
 };
 
-// 共享的同步逻辑
-async function runAllSyncs() {
-  const platforms = ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"] as const;
-  const results: Record<string, any> = {};
+// 后台异步同步单个平台
+async function syncPlatformBackground(platform: string) {
+  const syncer = PLATFORM_SYNCERS[platform as keyof typeof PLATFORM_SYNCERS];
+  if (!syncer) return;
 
-  for (const platform of platforms) {
-    const log = await prisma.syncLog.create({
+  const log = await prisma.syncLog.create({
+    data: { platform: platform as any, status: "RUNNING", ordersFound: 0, ordersNew: 0, ordersUpdated: 0 },
+  });
+
+  try {
+    const result = await syncer();
+    await prisma.syncLog.update({
+      where: { id: log.id },
       data: {
-        platform,
-        status: "RUNNING",
-        ordersFound: 0,
-        ordersNew: 0,
-        ordersUpdated: 0,
+        status: result.error ? "FAILED" : "SUCCESS",
+        message: result.error || null,
+        ordersFound: result.found,
+        ordersNew: result.newCount,
+        ordersUpdated: result.updatedCount,
+        finishedAt: new Date(),
+        errorJson: result.error ? { message: result.error } : undefined,
       },
     });
-
-    try {
-      const result = await PLATFORM_SYNCERS[platform]();
-
-      await prisma.syncLog.update({
-        where: { id: log.id },
-        data: {
-          status: result.error ? "FAILED" : "SUCCESS",
-          message: result.error || null,
-          ordersFound: result.found,
-          ordersNew: result.newCount,
-          ordersUpdated: result.updatedCount,
-          finishedAt: new Date(),
-          errorJson: result.error ? { message: result.error } : undefined,
-        },
-      });
-
-      results[platform] = {
-        status: result.error ? "FAILED" : "SUCCESS",
-        ...result,
-      };
-    } catch (err: any) {
-      await prisma.syncLog.update({
-        where: { id: log.id },
-        data: {
-          status: "FAILED",
-          message: err.message,
-          finishedAt: new Date(),
-          errorJson: { message: err.message },
-        },
-      });
-
-      results[platform] = { status: "FAILED", error: err.message };
-    }
+  } catch (err: any) {
+    await prisma.syncLog.update({
+      where: { id: log.id },
+      data: { status: "FAILED", message: err.message, finishedAt: new Date(), errorJson: { message: err.message } },
+    });
   }
-
-  return results;
 }
 
-// POST /api/sync - 手动触发全量同步（需要 Authorization）
+// 后台异步同步所有平台
+async function syncAllBackground() {
+  const platforms = ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"];
+  for (const platform of platforms) {
+    await syncPlatformBackground(platform);
+  }
+}
+
+// POST /api/sync - 手动触发全量同步
 export async function POST(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
-
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const results = await runAllSyncs();
-  return NextResponse.json({ results, syncedAt: new Date().toISOString() });
+  // 后台异步执行
+  syncAllBackground().catch(console.error);
+  return NextResponse.json({ message: "全平台同步已启动（后台执行）", platforms: ["AWIN", "IMPACT", "LEADDYNO", "GOAFFPRO"] });
 }
 
-// GET /api/sync - Vercel Cron 触发同步，或查看日志
+// GET /api/sync - Vercel Cron 触发同步 / 浏览器触发 / 查看日志
 export async function GET(request: NextRequest) {
-  // Vercel Cron Job 会发送 x-vercel-cron 头，自动触发全量同步
   const isVercelCron = request.headers.get("x-vercel-cron");
-  if (isVercelCron) {
-    const results = await runAllSyncs();
-    return NextResponse.json({ results, syncedAt: new Date().toISOString() });
+  const url = new URL(request.url);
+  const shouldRun = isVercelCron || url.searchParams.get("run") === "1";
+
+  if (shouldRun) {
+    // 后台异步执行所有平台同步
+    syncAllBackground().catch(console.error);
+    return NextResponse.json({ message: "全平台同步已启动（后台执行）", syncedAt: new Date().toISOString() });
   }
 
   // 普通 GET 请求：返回最近同步日志
@@ -93,6 +81,5 @@ export async function GET(request: NextRequest) {
     orderBy: { startedAt: "desc" },
     take: 20,
   });
-
   return NextResponse.json({ logs });
 }

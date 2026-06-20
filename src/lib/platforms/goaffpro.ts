@@ -47,66 +47,104 @@ export async function fetchGoAffProOrders(): Promise<{
   // 去掉末尾斜杠
   const apiBase = baseUrl.replace(/\/+$/, "");
 
+  // 尝试多种鉴权头 + 端点组合
+  const authHeadersList = [
+    { "X-Goaffpro-Access-Token": token },
+    { "X-Goaffpro-API-Key": token },
+    { "Authorization": `Bearer ${token}` },
+    { "x-api-key": token },
+  ];
+
+  const apiPaths = [
+    `/admin/orders`,
+    `/orders`,
+    `/api/admin/orders`,
+    `/api/orders`,
+    `/v1/orders`,
+    `/v1/admin/orders`,
+  ];
+
+  const apiHosts = [apiBase, "https://api.goaffpro.com"];
+
+  let workingUrl = "";
+
+  // 双层遍历：主机 × 路径 × 鉴权头
+  outer:
+  for (const host of apiHosts) {
+    for (const path of apiPaths) {
+      for (const headers of authHeadersList) {
+        const testUrl = `${host}${path}?from=2026-06-01&to=2026-06-02&limit=1`;
+        try {
+          const r = await fetch(testUrl, {
+            headers: { ...headers, "Content-Type": "application/json" },
+          });
+          const text = await r.text();
+          if (r.ok && !text.trim().startsWith("<")) {
+            workingUrl = `${host}${path}`;
+            // 保存成功的鉴权头供后续使用
+            (authHeadersList as any).working = headers;
+            break outer;
+          }
+        } catch {}
+      }
+    }
+  }
+
+  if (!workingUrl) {
+    return {
+      orders: [],
+      error: `GoAffPro: 所有端点+鉴权方式均失败。已尝试 ${apiHosts.length * apiPaths.length * authHeadersList.length} 种组合。请确认 GOAFFPRO_BASE_URL 和 GOAFFPRO_TOKEN 是否正确。`,
+    };
+  }
+
+  const workingHeaders = (authHeadersList as any).working || authHeadersList[0];
+
   try {
     const allOrders: GaOrder[] = [];
-    let page = 1;
-    let hasMore = true;
+    
+    // 拉取近 180 天数据，按周分批
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 180);
 
-    // 尝试多种 GoAffPro API 端点组合
-    const apiUrls = [
-      `${apiBase}/admin/orders`,
-      `https://api.goaffpro.com/admin/orders`,
-      `${apiBase}/orders`,
-      `https://api.goaffpro.com/orders`,
-      `https://api.goaffpro.com/v1/orders`,
-      `${apiBase}/api/admin/orders`,
-    ];
+    let currentStart = new Date(startDate);
+    while (currentStart < endDate) {
+      const batchEnd = new Date(currentStart);
+      batchEnd.setDate(batchEnd.getDate() + 7);
+      if (batchEnd > endDate) batchEnd.setTime(endDate.getTime());
 
-    let workingBaseUrl = "";
-    // 探测哪个 URL 可用
-    for (const testUrl of apiUrls) {
-      const testFullUrl = `${testUrl}?from=2026-06-01&to=2026-06-02&limit=1`;
-      try {
-        const r = await fetch(testFullUrl, {
-          headers: { "X-Goaffpro-Access-Token": token, "Content-Type": "application/json" },
+      const from = currentStart.toISOString().split("T")[0];
+      const to = batchEnd.toISOString().split("T")[0];
+
+      let page = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const url = `${workingUrl}?from=${from}&to=${to}&limit=200&page=${page}`;
+        
+        const res = await fetch(url, {
+          headers: { ...workingHeaders, "Content-Type": "application/json" },
         });
-        const text = await r.text();
-        if (r.ok && !text.trim().startsWith("<")) {
-          workingBaseUrl = testUrl;
-          break;
+
+        if (!res.ok) {
+          const body = await res.text();
+          return { orders: [], error: `GoAffPro API ${res.status}: ${body.slice(0, 200)}` };
         }
-      } catch {}
-    }
 
-    if (!workingBaseUrl) {
-      return { orders: [], error: `GoAffPro: 无法连接到 API，请检查 GOAFFPRO_BASE_URL 是否正确（当前: ${baseUrl}）。建议改为 https://api.goaffpro.com` };
-    }
-
-    while (hasMore) {
-      const url = `${workingBaseUrl}?from=2020-01-01&to=${new Date().toISOString().slice(0, 10)}&limit=200&page=${page}`;
-      
-      const res = await fetch(url, {
-        headers: {
-          "X-Goaffpro-Access-Token": token,
-          "Content-Type": "application/json",
-        },
-      });
-
-      if (!res.ok) {
-        const body = await res.text();
-        return { orders: [], error: `GoAffPro API ${res.status}: ${body.slice(0, 200)}` };
+        const text = await res.text();
+        try {
+          const data = JSON.parse(text);
+          const items = data.orders || (Array.isArray(data) ? data : []);
+          allOrders.push(...items);
+          hasMore = items.length >= 200;
+          page++;
+        } catch {
+          return { orders: [], error: `GoAffPro parse error: ${text.slice(0, 200)}` };
+        }
       }
 
-      const text = await res.text();
-      try {
-        const data = JSON.parse(text);
-        const items = data.orders || (Array.isArray(data) ? data : []);
-        allOrders.push(...items);
-        hasMore = items.length === 200;
-        page++;
-      } catch {
-        return { orders: [], error: `GoAffPro parse error: ${text.slice(0, 200)}` };
-      }
+      currentStart = new Date(batchEnd);
+      currentStart.setDate(currentStart.getDate() + 1);
+      if (currentStart > endDate) break;
     }
 
     return { orders: allOrders };

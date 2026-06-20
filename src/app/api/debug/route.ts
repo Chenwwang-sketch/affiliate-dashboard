@@ -84,20 +84,26 @@ export async function GET() {
       const apiBase = base.replace(/\/+$/, "");
       // 尝试多种 API 端点组合
       const urls = [
-        `${apiBase}/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
-        `https://api.goaffpro.com/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
-        `${apiBase}/orders?from=2026-06-01&to=2026-06-02&limit=1`,
-        `https://api.goaffpro.com/orders?from=2026-06-01&to=2026-06-02&limit=1`,
-        `https://api.goaffpro.com/v1/orders?from=2026-06-01&to=2026-06-02&limit=1`,
-        `${apiBase}/api/admin/orders?from=2026-06-01&to=2026-06-02&limit=1`,
+        { label: "用户域名/admin/orders", url: `${apiBase}/admin/orders?from=2026-06-01&to=2026-06-02&limit=1` },
+        { label: "api.goaffpro.com/admin/orders", url: `https://api.goaffpro.com/admin/orders?from=2026-06-01&to=2026-06-02&limit=1` },
+        { label: "用户域名/orders", url: `${apiBase}/orders?from=2026-06-01&to=2026-06-02&limit=1` },
+        { label: "api.goaffpro.com/orders", url: `https://api.goaffpro.com/orders?from=2026-06-01&to=2026-06-02&limit=1` },
+        { label: "api.goaffpro.com/v1/orders", url: `https://api.goaffpro.com/v1/orders?from=2026-06-01&to=2026-06-02&limit=1` },
+        { label: "用户域名/api/admin/orders", url: `${apiBase}/api/admin/orders?from=2026-06-01&to=2026-06-02&limit=1` },
       ];
-      let best: any = null;
+      const allResults: any[] = [];
       for (const u of urls) {
-        const r = await tryFetch(u, { "X-Goaffpro-Access-Token": tok });
-        best = { ...r, url: u };
-        if (r.ok && !r.isHtml) break;
+        const r = await tryFetch(u.url, { "X-Goaffpro-Access-Token": tok });
+        allResults.push({ label: u.label, ok: r.ok && !r.isHtml, httpStatus: r.httpStatus, isHtml: r.isHtml, bodyPreview: r.bodyPreview });
       }
-      probes.goaffpro = { ok: best?.ok || false, httpStatus: best?.httpStatus, isHtml: best?.isHtml, testedUrl: best?.url, bodyPreview: best?.bodyPreview };
+      const working = allResults.find(r => r.ok);
+      probes.goaffpro = {
+        ok: !!working,
+        workingUrl: working?.label || "none",
+        httpStatus: working?.httpStatus,
+        bodyPreview: working?.bodyPreview,
+        allProbes: allResults,
+      };
     } else { probes.goaffpro = { ok: false, error: "missing env" }; }
   } catch (e: any) { probes.goaffpro = { ok: false, error: e.message }; }
 
